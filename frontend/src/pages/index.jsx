@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import TablaConciliacionYappy from "../components/tabla_conciliacion_yappy.jsx";
+import ConciliacionYappy from "../components/ConciliacionYappy";
 
 export default function Home() {
   const [cierre, setCierre] = useState(null);
@@ -300,15 +300,15 @@ export default function Home() {
             >
               <div>
                 <p style={{ color: "#666", fontSize: "0.9rem" }}>Sucursal</p>
-                <p style={{ fontWeight: "600" }}>{dataCierre.sucursal || "—"}</p>
+                <p style={{ fontWeight: "600" }}>{dataCierre.meta?.sucursal  || "—"}</p>
               </div>
               <div>
                 <p style={{ color: "#666", fontSize: "0.9rem" }}>Fecha</p>
-                <p style={{ fontWeight: "600" }}>{dataCierre.fecha || "—"}</p>
+                <p style={{ fontWeight: "600" }}>{dataCierre.meta?.fecha || "—"}</p>
               </div>
               <div>
                 <p style={{ color: "#666", fontSize: "0.9rem" }}>Cajero</p>
-                <p style={{ fontWeight: "600" }}>{dataCierre.cajero || "—"}</p>
+                <p style={{ fontWeight: "600" }}>{dataCierre.meta?.cajero || "—"}</p>
               </div>
             </div>
 
@@ -317,10 +317,8 @@ export default function Home() {
           </div>
         )}
 
-          {slides[index].id === "yappy" && (
-            <TablaConciliacionYappy
-              data={{ cierre: dataCierre, yappy: yappyData }}
-            />
+           {slides[index].id === "yappy" && (
+            <ConciliacionYappy cierre={dataCierre} yappy={yappyData} />
           )}
 
           {slides[index].id === "banco" && (
