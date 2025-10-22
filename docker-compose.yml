@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:15
+    container_name: conciliador_db
+    restart: always
+    environment:
+      POSTGRES_USER: conciliador_user
+      POSTGRES_PASSWORD: conciliador_pass
+      POSTGRES_DB: conciliador_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: conciliador_backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - POSTGRES_USER=conciliador_user
+      - POSTGRES_PASSWORD=conciliador_pass
+      - POSTGRES_DB=conciliador_db
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - BACKEND_DATA_DIR=/app/app/data
+      - CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app          # 👈 este es el cambio clave
+      - ./data:/app/app/data
+
+  frontend:
+    build: ./frontend
+    container_name: conciliador_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+
+volumes:
+  pgdata:
