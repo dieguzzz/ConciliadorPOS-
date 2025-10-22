@@ -87,21 +87,37 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
       ? "#ffe8cc" // naranja claro
       : "#ffffff"; // blanco
 
-  // ====== UI ======
-  return (
+    // ====== UI ======
+    return (
     <div style={styles.wrapper}>
-      <h2 style={styles.h2}>💜 Conciliación Yappy</h2>
       <h4 style={styles.h4}>Transacciones Yappy</h4>
-      <div style={{ textAlign: "center", color: "#6b5b95", fontWeight: 600, marginBottom: 10 }}>
-        💜 Conciliación Yappy — Fecha: {fechaCierreStr || "No detectada"}
+
+      {/* === Encabezado centrado con sucursal y fecha === */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          marginBottom: 10,
+        }}
+      >
+        <div
+          style={{
+            textAlign: "center",
+            color: "#6b5b95",
+            fontWeight: 600,
+            background: "#f8f6ff",
+            padding: "8px 16px",
+            borderRadius: 10,
+            boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+            minWidth: "fit-content",
+          }}
+        >
+           {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{"  "}
+          {fechaCierreStr || "No detectada"}
+        </div>
       </div>
 
-      {notaFiltro && (
-        <div style={styles.note}>
-          {notaFiltro}
-        </div>
-      )}
-
+      {notaFiltro && <div style={styles.note}>{notaFiltro}</div>}
       <div style={styles.columns}>
         {/* Izquierda: CIERRE POS */}
         <div style={styles.card}>
@@ -119,15 +135,27 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               {detalleCierre.map((item, idx) => {
                 const t = matchType(item.nombre, item.monto);
                 return (
-                  <tr key={idx} style={{ background: rowBg(t), borderBottom: "1px solid #eee" }}>
-                    <td style={{ ...styles.td, textAlign: "left" }}>{item.nombre}</td>
-                    <td style={{ ...styles.td, textAlign: "right" }}>{item.monto}</td>
+                  <tr
+                    key={idx}
+                    style={{
+                      background: rowBg(t),
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    <td style={{ ...styles.td, textAlign: "left" }}>
+                      {item.nombre}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      {item.monto}
+                    </td>
                   </tr>
                 );
               })}
               {detalleCierre.length === 0 && (
                 <tr>
-                  <td colSpan={2} style={styles.empty}>Sin Yappy en el cierre POS</td>
+                  <td colSpan={2} style={styles.empty}>
+                    Sin Yappy en el cierre POS
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -150,10 +178,22 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
             <tbody>
               {filtradas.length > 0 ? (
                 filtradas.map((t, i) => (
-                  <tr key={i} style={{ background: "#fff", borderBottom: "1px solid #eee" }}>
-                    <td style={{ ...styles.td, textAlign: "left" }}>{t.cliente}</td>
-                    <td style={{ ...styles.td, textAlign: "left" }}>{fmtPhone(t.celular)}</td>
-                    <td style={{ ...styles.td, textAlign: "right" }}>{fmtMonto(t.monto)}</td>
+                  <tr
+                    key={i}
+                    style={{
+                      background: "#fff",
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    <td style={{ ...styles.td, textAlign: "left" }}>
+                      {t.cliente}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "left" }}>
+                      {fmtPhone(t.celular)}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      {fmtMonto(t.monto)}
+                    </td>
                   </tr>
                 ))
               ) : (
@@ -172,19 +212,28 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
       <div style={styles.legend}>
         <div style={styles.legendItem}>
           <span style={{ ...styles.dot, background: "#d1fadf" }} />
-          <span>Coincide nombre y monto — <b>Verde</b></span>
+          <span>
+            Coincide nombre y monto — <b>Verde</b>
+          </span>
         </div>
         <div style={styles.legendItem}>
           <span style={{ ...styles.dot, background: "#ffe8cc" }} />
-          <span>Mismo monto, diferente nombre — <b>Naranja</b></span>
+          <span>
+            Mismo monto, diferente nombre — <b>Naranja</b>
+          </span>
         </div>
         <div style={styles.legendItem}>
-          <span style={{ ...styles.dot, background: "#ffffff", border: "1px solid #ddd" }} />
-          <span>Sin coincidencia — <b>Blanco</b></span>
+          <span
+            style={{ ...styles.dot, background: "#ffffff", border: "1px solid #ddd" }}
+          />
+          <span>
+            Sin coincidencia — <b>Blanco</b>
+          </span>
         </div>
       </div>
     </div>
   );
+
 };
 
 // ====== estilos inline para mantener tu estética actual ======
