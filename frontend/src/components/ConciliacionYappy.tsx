@@ -7,123 +7,60 @@ interface Props {
 }
 
 const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
-  // ====== Guardas ======
-  if (!cierre)
+  if (!cierre || !yappy) {
     return (
-      <div style={styles.infoMuted}>Carga primero el archivo de cierre POS.</div>
+      <div style={styles.infoMuted}>
+        Carga ambos archivos para mostrar la conciliación.
+      </div>
     );
-  if (!yappy)
-    return (
-      <div style={styles.infoMuted}>Carga el archivo de Yappy para comparar.</div>
-    );
-
-  const detalleCierre: any[] = cierre?.detalle_yappy || [];
-  const fechaCierreStr: string | undefined = cierre?.meta?.fecha;
-  const fechaCierre = fechaCierreStr ? new Date(fechaCierreStr) : null;
-
-  // ====== Filtrado por fecha ======
-  const allTx: any[] = Array.isArray(yappy?.preview) ? yappy.preview : [];
-
-  // 1) mismo día
-  let filtradas = allTx.filter((t) => {
-    if (!fechaCierre) return false;
-    const ft = new Date(t.fecha);
-    return (
-      ft.getFullYear() === fechaCierre.getFullYear() &&
-      ft.getMonth() === fechaCierre.getMonth() &&
-      ft.getDate() === fechaCierre.getDate()
-    );
-  });
-
-  let notaFiltro = "";
-  // 2) si no hay, mismo mes y año (fallback amable)
-  if (filtradas.length === 0 && fechaCierre) {
-    filtradas = allTx.filter((t) => {
-      const ft = new Date(t.fecha);
-      return (
-        ft.getFullYear() === fechaCierre.getFullYear() &&
-        ft.getMonth() === fechaCierre.getMonth()
-      );
-    });
-    if (filtradas.length > 0) {
-      notaFiltro =
-        "Mostrando transacciones del mismo mes porque no se encontraron del día exacto.";
-    }
   }
 
-  // ====== Utilidades ======
+  const detalleCierre = cierre.detalle_yappy || [];
+  const fechaCierreStr: string = cierre.meta?.fecha || "";
+  console.log("🟣 Yappy recibido en frontend:", yappy);
+  const allTx = Array.isArray(yappy?.preview) ? yappy.preview : [];
+
+  // === Formato de texto ===
   const fmtMonto = (n: number | string) => {
     const num =
       typeof n === "number"
         ? n
-        : parseFloat(String(n).toString().replace(/[^\d.]/g, "")) || 0;
+        : parseFloat(String(n).replace(/[^\d.]/g, "")) || 0;
     return `B/. ${num.toFixed(2)}`;
   };
 
-  const fmtPhone = (raw: string) => {
-    if (!raw) return "";
-    const d = raw.replace(/\D/g, "");
-    const last8 = d.slice(-8);
-    if (last8.length === 8) return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
-    return raw;
-  };
+  const fmtPhone = (raw: any) => {
+  if (!raw) return "";
+  // Convertir siempre a string antes de usar .replace()
+  const s = String(raw).trim();
+  if (!s) return "";
+  const d = s.replace(/\D/g, ""); // elimina todo lo que no sea número
+  const last8 = d.slice(-8);
+  if (last8.length === 8) {
+    return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
+  }
+  return s; // devuelve el original si no cumple formato
+};
 
-  // tipo de match para colorear filas del CIERRE (izquierda)
-  const matchType = (nombre: string, montoTexto: string) => {
-    const montoCierre = parseFloat(montoTexto.replace(/[^\d.]/g, "") || "0");
-    const m2 = filtradas.find(
-      (t) => Number(t.monto).toFixed(2) === montoCierre.toFixed(2)
-    );
-    if (!m2) return "none";
-    if (m2.cliente?.trim().toLowerCase() === nombre?.trim().toLowerCase())
-      return "full";
-    return "amount";
-  };
 
-  const rowBg = (t: "none" | "amount" | "full") =>
-    t === "full"
-      ? "#d1fadf" // verde claro
-      : t === "amount"
-      ? "#ffe8cc" // naranja claro
-      : "#ffffff"; // blanco
-
-    // ====== UI ======
-    return (
+  // === UI ===
+  return (
     <div style={styles.wrapper}>
-      <h4 style={styles.h4}>Transacciones Yappy</h4>
+      <h2 style={styles.h2}>💜 Conciliación Yappy</h2>
+      <h4 style={styles.h4}>Transacciones Yappy (sin filtrar)</h4>
 
-      {/* === Encabezado centrado con sucursal y fecha === */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          marginBottom: 10,
-        }}
-      >
-        <div
-          style={{
-            textAlign: "center",
-            color: "#6b5b95",
-            fontWeight: 600,
-            background: "#f8f6ff",
-            padding: "8px 16px",
-            borderRadius: 10,
-            boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-            minWidth: "fit-content",
-          }}
-        >
-           {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{"  "}
+      {/* Encabezado con sucursal + fecha */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+        <div style={styles.headerBox}>
+          💜 {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{" "}
           {fechaCierreStr || "No detectada"}
         </div>
       </div>
 
-      {notaFiltro && <div style={styles.note}>{notaFiltro}</div>}
       <div style={styles.columns}>
-        {/* Izquierda: CIERRE POS */}
+        {/* === Cierre POS === */}
         <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <span style={styles.cardHeaderIcon}>📑</span> Cierre POS
-          </div>
+          <div style={styles.cardHeader}>📋 Cierre POS (detalle_yappy)</div>
           <table style={styles.table}>
             <thead>
               <tr style={styles.theadRow}>
@@ -132,15 +69,11 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               </tr>
             </thead>
             <tbody>
-              {detalleCierre.map((item, idx) => {
-                const t = matchType(item.nombre, item.monto);
-                return (
+              {detalleCierre.length > 0 ? (
+                detalleCierre.map((item: any, idx: number) => (
                   <tr
                     key={idx}
-                    style={{
-                      background: rowBg(t),
-                      borderBottom: "1px solid #eee",
-                    }}
+                    style={{ background: "#fff", borderBottom: "1px solid #eee" }}
                   >
                     <td style={{ ...styles.td, textAlign: "left" }}>
                       {item.nombre}
@@ -149,9 +82,8 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
                       {item.monto}
                     </td>
                   </tr>
-                );
-              })}
-              {detalleCierre.length === 0 && (
+                ))
+              ) : (
                 <tr>
                   <td colSpan={2} style={styles.empty}>
                     Sin Yappy en el cierre POS
@@ -162,44 +94,43 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           </table>
         </div>
 
-        {/* Derecha: YAPPY (filtrado) */}
+        {/* === Archivo Yappy completo === */}
         <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <span style={styles.cardHeaderIcon}>💜</span> Archivo Yappy (filtrado)
-          </div>
+          <div style={styles.cardHeader}>💜 Archivo Yappy (todas las transacciones)</div>
           <table style={styles.table}>
             <thead>
               <tr style={styles.theadRow}>
+                <th style={{ ...styles.th, textAlign: "left" }}>Fecha</th>
                 <th style={{ ...styles.th, textAlign: "left" }}>Cliente</th>
                 <th style={{ ...styles.th, textAlign: "left" }}>Celular</th>
                 <th style={{ ...styles.th, textAlign: "right" }}>Monto</th>
               </tr>
             </thead>
             <tbody>
-              {filtradas.length > 0 ? (
-                filtradas.map((t, i) => (
+              {allTx.length > 0 ? (
+                allTx.map((t: any, i: number) => (
                   <tr
                     key={i}
-                    style={{
-                      background: "#fff",
-                      borderBottom: "1px solid #eee",
-                    }}
+                    style={{ background: "#fff", borderBottom: "1px solid #eee" }}
                   >
                     <td style={{ ...styles.td, textAlign: "left" }}>
-                      {t.cliente}
+                      {t.fecha || t["Fecha"] || t["Fecha y hora"] || t["FECHA"] || ""}
                     </td>
                     <td style={{ ...styles.td, textAlign: "left" }}>
-                      {fmtPhone(t.celular)}
+                      {t.cliente || t["Cliente"] || ""}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "left" }}>
+                      {fmtPhone(t.celular || t["Celular"] || "")}
                     </td>
                     <td style={{ ...styles.td, textAlign: "right" }}>
-                      {fmtMonto(t.monto)}
+                      {fmtMonto(t.monto || t["Monto"] || "0")}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3} style={styles.empty}>
-                    Sin transacciones para esta fecha
+                  <td colSpan={4} style={styles.empty}>
+                    No se encontraron transacciones Yappy
                   </td>
                 </tr>
               )}
@@ -207,63 +138,24 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           </table>
         </div>
       </div>
-
-      {/* Leyenda */}
-      <div style={styles.legend}>
-        <div style={styles.legendItem}>
-          <span style={{ ...styles.dot, background: "#d1fadf" }} />
-          <span>
-            Coincide nombre y monto — <b>Verde</b>
-          </span>
-        </div>
-        <div style={styles.legendItem}>
-          <span style={{ ...styles.dot, background: "#ffe8cc" }} />
-          <span>
-            Mismo monto, diferente nombre — <b>Naranja</b>
-          </span>
-        </div>
-        <div style={styles.legendItem}>
-          <span
-            style={{ ...styles.dot, background: "#ffffff", border: "1px solid #ddd" }}
-          />
-          <span>
-            Sin coincidencia — <b>Blanco</b>
-          </span>
-        </div>
-      </div>
     </div>
   );
-
 };
 
-// ====== estilos inline para mantener tu estética actual ======
+// === estilos ===
 const styles: Record<string, React.CSSProperties> = {
-  wrapper: {
-    background: "transparent",
-    padding: "0.5rem 0.5rem 1.25rem",
-  },
-  h2: {
+  wrapper: { background: "transparent", padding: "0.5rem 0 1.25rem" },
+  h2: { textAlign: "center", color: "#6b5b95", fontWeight: 700, marginBottom: 4 },
+  h4: { textAlign: "center", color: "#6b5b95", marginBottom: 8, fontWeight: 700 },
+  headerBox: {
     textAlign: "center",
     color: "#6b5b95",
-    fontWeight: 700,
-    margin: "0 0 .25rem",
-  },
-  h4: {
-    textAlign: "center",
-    color: "#6b5b95",
-    margin: "0 0 .5rem",
-    fontWeight: 700,
-  },
-  note: {
-    textAlign: "center",
-    background: "#f6f0ff",
-    color: "#6b5b95",
-    border: "1px dashed #d9c9ff",
-    padding: "6px 10px",
+    fontWeight: 600,
+    background: "#f8f6ff",
+    padding: "8px 16px",
     borderRadius: 10,
-    margin: "0 auto 10px",
-    maxWidth: 680,
-    fontSize: ".9rem",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+    minWidth: "fit-content",
   },
   columns: {
     display: "grid",
@@ -284,44 +176,15 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "6px",
   },
-  cardHeaderIcon: { fontSize: "1rem" },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: ".95rem",
-  },
-  theadRow: {
-    background: "#fff6d6",
-    color: "#4b5563",
-  },
-  th: {
-    padding: "8px 10px",
-    fontWeight: 700,
-  },
-  td: {
-    padding: "8px 10px",
-  },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: ".95rem" },
+  theadRow: { background: "#fff6d6", color: "#4b5563" },
+  th: { padding: "8px 10px", fontWeight: 700 },
+  td: { padding: "8px 10px" },
   empty: {
     textAlign: "center",
     color: "#9aa3af",
     fontStyle: "italic",
     padding: "14px",
-  },
-  legend: {
-    display: "flex",
-    justifyContent: "center",
-    gap: "18px",
-    marginTop: "18px",
-    flexWrap: "wrap",
-    color: "#334155",
-    fontSize: ".95rem",
-  },
-  legendItem: { display: "flex", alignItems: "center", gap: 8 },
-  dot: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    display: "inline-block",
   },
   infoMuted: {
     textAlign: "center",

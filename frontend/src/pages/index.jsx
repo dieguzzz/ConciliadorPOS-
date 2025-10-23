@@ -47,6 +47,7 @@ export default function Home() {
 
   // =================== SUBIR YAPPY ===================
   const handleYappyUpload = async (e) => {
+    console.log("🟢 handleYappyUpload ejecutado"); 
     const file = e.target.files?.[0];
     if (!file) return;
     setYappyFile(file);
@@ -60,6 +61,7 @@ export default function Home() {
         body: formData,
       });
       const json = await res.json();
+      console.log("🟣 Yappy recibido en frontend:", json);
       setYappyData(json);
     } catch (err) {
       alert("Error procesando archivo Yappy: " + err.message);
@@ -220,18 +222,43 @@ export default function Home() {
 
         {/* Yappy */}
         <div style={uploadBox}>
-          <h3 style={{ ...uploadTitle, color: "#b85ac0" }}>💜 Archivo Yappy</h3>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleYappyUpload}
-            style={inputStyle}
-          />
-          {yappyLoading && (
-            <p style={{ color: "#b85ac0", fontWeight: "600" }}>
-              Procesando archivo...
-            </p>
-          )}
+          <h3 style={{ ...uploadTitle, color: "#b85ac0" }}>💸 Archivo Yappy</h3>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!yappyFile) {
+                alert("Por favor selecciona un archivo Yappy.");
+                return;
+              }
+              setYappyLoading(true);
+              const formData = new FormData();
+              formData.append("file", yappyFile);
+              try {
+                const res = await fetch("http://localhost:8000/api/yappy_preview", {
+                  method: "POST",
+                  body: formData,
+                });
+                const json = await res.json();
+                console.log("🟣 Yappy recibido en frontend:", json);
+                setYappyData(json);
+              } catch (err) {
+                alert("Error procesando archivo Yappy: " + err.message);
+              } finally {
+                setYappyLoading(false);
+              }
+            }}
+            style={{ display: "flex", gap: "0.5rem" }}
+          >
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => setYappyFile(e.target.files?.[0] || null)}
+              style={inputStyle}
+            />
+            <button type="submit" disabled={yappyLoading} style={buttonStyle}>
+              {yappyLoading ? "Cargando..." : "Cargar"}
+            </button>
+          </form>
         </div>
 
         {/* Bancario */}

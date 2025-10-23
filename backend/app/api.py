@@ -9,6 +9,7 @@ import numpy as np
 import io, traceback, re
 import re
 import tempfile
+import unicodedata
 
 router = APIRouter()
 
@@ -89,7 +90,11 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame):
     fecha_v = _below(df_raw, "I8") or _below(df_raw, "J8") or _below(df_raw, "K8") or _below(df_raw, "L8")
     suc_v = _below(df_raw, "N8") or _below(df_raw, "O8") or _below(df_raw, "P8") or _below(df_raw, "Q8")
 
-    fecha = pd.to_datetime(fecha_v, errors="coerce").date() if fecha_v else pd.NaT
+    fecha = (
+        pd.to_datetime(fecha_v, errors="coerce", dayfirst=True).date()
+        if fecha_v
+        else pd.NaT
+    )
     sucursal = (str(suc_v).strip().upper() if suc_v else "DESCONOCIDA")
 
     # === 2) BLOQUES DE YAPPY / ACH / PEDIDOS YA ===
@@ -465,28 +470,99 @@ async def conciliar_exportar(
 
 @router.post("/yappy_preview")
 async def yappy_preview(file: UploadFile = File(...)):
-    """Lee archivo Yappy y devuelve preview con rango de fechas."""
+    """
+    Lee el archivo Yappy (hoja 'ExcelTransactionsYappy')
+    con encabezados en la fila 12 y datos desde la fila 13.
+    Extrae las columnas clave del formato oficial Yappy Panamá.
+    """
+    import io
+    import pandas as pd
+    import unicodedata
+
     try:
         contents = await file.read()
-        df_raw = pd.read_excel(io.BytesIO(contents),
-                               sheet_name="ExcelTransactionsYappy",
-                               header=None,
-                               engine="openpyxl")
 
-        result = parse_yappy_blackdog(df_raw)
+        # Leer la hoja con encabezado en la fila 12 (header=11)
+        df = pd.read_excel(
+            io.BytesIO(contents),
+            sheet_name="ExcelTransactionsYappy",
+            header=11,
+            engine="openpyxl",
+        )
 
+        # 🔹 Normalizar nombres de columnas (quita acentos y espacios)
+        def limpiar_nombre(col):
+            col = unicodedata.normalize("NFKD", str(col)).encode("ascii", "ignore").decode("utf-8")
+            return col.strip().lower().replace("  ", " ")
+
+        df.columns = [limpiar_nombre(c) for c in df.columns]
+
+        # 🔹 Mapear nombres de columnas reales
+        columnas = {
+            "fecha": [c for c in df.columns if "fecha" in c][0],
+            "hora": [c for c in df.columns if "hora" in c][0],
+            "referencia": [c for c in df.columns if "referencia" in c][0],
+            "cliente": [c for c in df.columns if "cliente" in c][0],
+            "celular": [c for c in df.columns if "celular" in c][0],
+            "estado": [c for c in df.columns if "estado" in c][0],
+            "punto_cobro": [c for c in df.columns if "punto" in c][0],
+            "subtotal": [c for c in df.columns if "sub" in c][0],
+            "propina": [c for c in df.columns if "propina" in c][0],
+            "descuento": [c for c in df.columns if "descuento" in c][0],
+            "impuesto": [c for c in df.columns if "impuesto" in c][0],
+            "total": [c for c in df.columns if "total" in c][0],
+        }
+
+        # 🔹 Crear dataframe limpio
+        df_clean = pd.DataFrame({
+            "fecha": df[columnas["fecha"]],
+            "hora": df[columnas["hora"]],
+            "referencia": df[columnas["referencia"]],
+            "cliente": df[columnas["cliente"]],
+            "celular": df[columnas["celular"]],
+            "estado": df[columnas["estado"]],
+            "punto_cobro": df[columnas["punto_cobro"]],
+            "subtotal": df[columnas["subtotal"]],
+            "propina": df[columnas["propina"]],
+            "descuento": df[columnas["descuento"]],
+            "impuesto": df[columnas["impuesto"]],
+            "total": df[columnas["total"]],
+        })
+
+        # 🔹 Limpiar valores
+        df_clean = df_clean.dropna(subset=["fecha", "referencia"], how="any")
+
+        # 🔹 Convertir fechas y montos
+        def convertir_fecha(valor):
+            try:
+                texto = str(valor).replace("mié", "").replace("lun", "").replace("mar", "").replace("mie", "").replace("jue", "").replace("vie", "").replace("sab", "").replace("dom", "").strip()
+                return pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce")
+            except Exception:
+                return pd.NaT
+
+        df_clean["fecha"] = df_clean["fecha"].apply(convertir_fecha).dt.date
+
+        # Convertir montos a float
+        for col in ["subtotal", "propina", "descuento", "impuesto", "total"]:
+            df_clean[col] = (
+                df_clean[col]
+                .astype(str)
+                .str.replace("[^0-9,.-]", "", regex=True)
+                .str.replace(",", ".", regex=False)
+            )
+            df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce").fillna(0.0)
+
+        # 🔹 Respuesta final
         return {
             "hoja": "ExcelTransactionsYappy",
-            "fecha_inicio": result["fecha_inicio"],
-            "fecha_fin": result["fecha_fin"],
-            "total_registros": len(result["data"]),
-            "preview": result["data"].head(10).to_dict(orient="records")
+            "total_registros": len(df_clean),
+            "columns": df_clean.columns.tolist(),
+            "preview": df_clean.head(50).to_dict(orient="records"),
         }
 
     except Exception as e:
         import traceback
-        tb = traceback.format_exc()
-        return {"error": str(e), "trace": tb}
+        return {"error": str(e), "trace": traceback.format_exc()}
 
 @router.post("/api/banco_preview")
 async def banco_preview(file: UploadFile):
