@@ -514,38 +514,35 @@ async def conciliar_exportar(
 @router.post("/yappy_preview")
 async def yappy_preview(file: UploadFile = File(...)):
     """
-    Lee el archivo Yappy (hoja 'ExcelTransactionsYappy')
-    con encabezados en la fila 12 y datos desde la fila 13.
-    Extrae las columnas clave del formato oficial Yappy Panamá.
+    Lee el archivo Yappy (hoja 'ExcelTransactionsYappy') del formato oficial Yappy Panamá.
+    Detecta automáticamente columnas clave, limpia los montos en cualquier formato ($, B/., numérico)
+    y devuelve una vista previa lista para conciliación.
     """
     import io
     import pandas as pd
     import unicodedata
+    import re
     import traceback
 
     try:
-        print("🟣 Paso 1: Recibiendo archivo Yappy...")
         contents = await file.read()
 
-        # === Leer hoja ===
+        # === Leer hoja con encabezado en la fila 12 (header=11) ===
         df = pd.read_excel(
             io.BytesIO(contents),
             sheet_name="ExcelTransactionsYappy",
-            header=11,  # fila 12 en Excel
+            header=11,
             engine="openpyxl",
         )
-        print("🟣 Paso 2: Archivo leído correctamente.")
-        print("🔹 Columnas detectadas (originales):", df.columns.tolist()[:20])
 
-        # === Normalizar nombres ===
+        # === Normalizar nombres de columnas ===
         def limpiar_nombre(col):
             col = unicodedata.normalize("NFKD", str(col)).encode("ascii", "ignore").decode("utf-8")
             return col.strip().lower().replace("  ", " ")
 
         df.columns = [limpiar_nombre(c) for c in df.columns]
-        print("🔹 Columnas normalizadas:", df.columns.tolist()[:20])
 
-        # === Buscar columnas ===
+        # === Detección automática de columnas ===
         def buscar_columna(nombre, excluir=None):
             for c in df.columns:
                 if nombre in c and (excluir not in c if excluir else True):
@@ -567,12 +564,10 @@ async def yappy_preview(file: UploadFile = File(...)):
             "total": buscar_columna("total", excluir="sub"),
         }
 
-        print("🟣 Paso 3: Mapeo de columnas detectadas:", columnas)
-
         if not columnas["total"]:
             raise ValueError("❌ No se encontró la columna de 'Total' en el archivo.")
 
-        # === Crear DataFrame limpio ===
+        # === Crear DataFrame limpio con las columnas relevantes ===
         df_clean = pd.DataFrame({
             "fecha": df[columnas["fecha"]],
             "hora": df[columnas["hora"]],
@@ -587,9 +582,8 @@ async def yappy_preview(file: UploadFile = File(...)):
             "impuesto": df[columnas["impuesto"]],
             "total": df[columnas["total"]],
         })
-        print("🟣 Paso 4: DataFrame limpio creado. Registros:", len(df_clean))
 
-        # === Limpieza de fechas ===
+        # === Convertir fechas ===
         def convertir_fecha(valor):
             try:
                 texto = str(valor)
@@ -600,7 +594,7 @@ async def yappy_preview(file: UploadFile = File(...)):
 
         df_clean["fecha"] = df_clean["fecha"].apply(convertir_fecha).dt.date
 
-        # === Limpieza de montos ===
+        # === Limpiar y convertir montos ===
         def convertir_monto(valor):
             if pd.isna(valor):
                 return 0.0
@@ -615,10 +609,10 @@ async def yappy_preview(file: UploadFile = File(...)):
         for col in ["subtotal", "propina", "descuento", "impuesto", "total"]:
             df_clean[col] = df_clean[col].apply(convertir_monto)
 
-        print("🟣 Paso 5: Montos convertidos correctamente.")
-        print("🟣 Muestra de totales no nulos:", df_clean[df_clean["total"] > 0].head(3).to_dict(orient="records"))
+        # === Eliminar filas vacías y registros irrelevantes ===
+        df_clean = df_clean.dropna(subset=["fecha", "referencia"], how="any")
 
-        # === Respuesta final ===
+        # === Respuesta limpia ===
         return {
             "hoja": "ExcelTransactionsYappy",
             "total_registros": len(df_clean),
@@ -627,8 +621,6 @@ async def yappy_preview(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        print("❌ ERROR EN PROCESO YAPPY:")
-        print(traceback.format_exc())
         return {"error": str(e), "trace": traceback.format_exc()}
 
 @router.post("/api/banco_preview")
