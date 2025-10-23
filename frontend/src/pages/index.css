@@ -1,0 +1,29 @@
+/* 🎨 Scrollbar personalizado elegante */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #c5c5c5;
+  border-radius: 8px;
+  border: 2px solid #f0f0f0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #a8a8a8;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #f9f9f9;
+  border-radius: 8px;
+}
+
+/* 🎨 Estilo base de fondo y texto */
+body {
+  background-color: #f7f9fc;
+  color: #333;
+  font-family: "Inter", sans-serif;
+  margin: 0;
+  padding: 0;
+}

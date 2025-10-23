@@ -19,7 +19,10 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
   const fechaCierreStr: string = cierre.meta?.fecha || "";
 
   // ✅ Obtener datos del archivo Yappy
-  const allTx = Array.isArray(yappy?.preview) ? yappy.preview : [];
+  const allTx = Array.isArray(yappy?.preview)
+    ? yappy.preview.slice(0, 20) // 👈 solo muestra las primeras 20 filas
+    : [];
+
   console.log("🟣 Yappy recibido en frontend:", yappy);
 
   const parseNum = (v: any) => {
@@ -33,7 +36,6 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
   const computeTotal = (t: any) => {
     const tot = parseNum(t.total);
     if (Math.abs(tot) > 0.0001) return tot;
-    // fallback: subtotal + propina - descuento + impuesto
     const subtotal = parseNum(t.subtotal);
     const propina = parseNum(t.propina);
     const descuento = parseNum(t.descuento);
@@ -63,20 +65,21 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
 
   return (
     <div style={styles.wrapper}>
-      <h2 style={styles.h2}>💜 Conciliación Yappy</h2>
-      <h4 style={styles.h4}>Transacciones Yappy</h4>
-
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+      {/* === Encabezado === */}
+      <div
+        style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}
+      >
         <div style={styles.headerBox}>
-          💜 {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{" "}
+          📍 {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{" "}
           {fechaCierreStr || "No detectada"}
         </div>
       </div>
 
+      {/* === Columnas === */}
       <div style={styles.columns}>
         {/* === Cierre POS === */}
         <div style={styles.card}>
-          <div style={styles.cardHeader}>📋 Cierre POS (detalle_yappy)</div>
+          <div style={styles.cardHeader}>📋 Cierre POS (Detalles Yappy)</div>
           <table style={styles.table}>
             <thead>
               <tr style={styles.theadRow}>
@@ -108,9 +111,25 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
         </div>
 
         {/* === Archivo Yappy === */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>💜 Archivo Yappy (todas las transacciones)</div>
-          <table style={styles.table}>
+        <div
+          style={{
+            background: "#f9fafb",
+            borderRadius: "14px",
+            padding: "2rem 2rem 1.5rem 2rem",
+            border: "1px solid #ddd",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+            maxHeight: "78vh",
+            minHeight: "450px",
+            overflowY: "auto",
+            overflowX: "auto",
+            width: "100%",
+          }}
+        >
+          <div style={{ ...styles.cardHeader, marginBottom: "1rem" }}>
+            💸 Archivo Yappy (todas las transacciones)
+          </div>
+
+          <table style={{ ...styles.table, width: "100%" }}>
             <thead>
               <tr style={styles.theadRow}>
                 <th style={styles.th}>Fecha</th>
@@ -124,7 +143,13 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
             <tbody>
               {allTx.length > 0 ? (
                 allTx.map((t: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
+                  <tr
+                    key={i}
+                    style={{
+                      borderBottom: "1px solid #eee",
+                      background: i % 2 === 0 ? "#fff" : "#f4f6f8",
+                    }}
+                  >
                     <td style={styles.td}>{t.fecha || ""}</td>
                     <td style={styles.td}>{t.referencia || ""}</td>
                     <td style={styles.td}>{t.cliente || ""}</td>
@@ -144,6 +169,17 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               )}
             </tbody>
           </table>
+
+          <p
+            style={{
+              color: "#555",
+              fontSize: "0.85rem",
+              marginTop: "0.75rem",
+              textAlign: "right",
+            }}
+          >
+            Mostrando {allTx.length} transacciones
+          </p>
         </div>
       </div>
     </div>
@@ -151,9 +187,26 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  wrapper: { background: "transparent", padding: "0.5rem 0 1.25rem" },
-  h2: { textAlign: "center", color: "#6b5b95", fontWeight: 700, marginBottom: 4 },
-  h4: { textAlign: "center", color: "#6b5b95", marginBottom: 8, fontWeight: 700 },
+  wrapper: {
+    background: "transparent",
+    padding: "1.5rem 2rem",
+    width: "100%",
+    maxWidth: "1150px",
+    margin: "0 auto",
+     boxSizing: "border-box",
+  },
+  h2: {
+    textAlign: "center",
+    color: "#6b5b95",
+    fontWeight: 700,
+    marginBottom: 4,
+  },
+  h4: {
+    textAlign: "center",
+    color: "#6b5b95",
+    marginBottom: 8,
+    fontWeight: 700,
+  },
   headerBox: {
     textAlign: "center",
     color: "#6b5b95",
@@ -164,7 +217,13 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
     minWidth: "fit-content",
   },
-  columns: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px" },
+  columns: {
+    display: "grid",
+    gridTemplateColumns: "30% 70%", // 30% cierre, 70% archivo yappy
+    gap: "25px",
+    alignItems: "start",
+    width: "100%",
+  },
   card: {
     background: "#fff",
     borderRadius: "14px",
