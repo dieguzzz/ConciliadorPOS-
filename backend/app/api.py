@@ -187,74 +187,117 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame):
 
 
 def parse_yappy_blackdog(df_raw: pd.DataFrame):
-    import numpy as np, pandas as pd, re
+    """
+    Parser robusto para archivos Yappy Black Dog.
+    - Detecta dinámicamente las columnas correctas según el encabezado.
+    - Limpia montos en formato "$59.95", "B/. 59.95" o similares.
+    - Retorna un DataFrame limpio con: fecha, hora, referencia, cliente, celular, estado, total.
+    """
 
-    # === 1️⃣ Extraer rango de fechas del encabezado ===
-    fecha_inicio_raw = str(df_raw.iat[9, 4]).strip()
-    fecha_fin_raw = str(df_raw.iat[9, 8]).strip()
-
-    def parse_fecha_espanol(fecha_str):
-        if not fecha_str or fecha_str.lower() == "nan":
-            return None
-        # Quitar nombre del día (ej. "lun", "mié")
-        fecha_str = re.sub(r"^[a-záéíóú]{3,}\s*", "", fecha_str.strip(), flags=re.IGNORECASE)
-        try:
-            return datetime.strptime(fecha_str, "%d/%m/%Y").date()
-        except Exception:
-            return None
-
-    fecha_inicio = parse_fecha_espanol(fecha_inicio_raw)
-    fecha_fin = parse_fecha_espanol(fecha_fin_raw)
-
-    # === 2️⃣ Buscar encabezado y tomar datos desde fila siguiente ===
-    header_row = None
-    for i in range(len(df_raw)):
-        val = str(df_raw.iat[i, 1]).strip().lower()
-        if val == "fecha":
-            header_row = i
+    # Buscar fila de encabezados (donde aparece "FECHA" y "REFERENCIA")
+    start_row = None
+    for i, row in df_raw.iterrows():
+        row_str = " ".join(str(x).strip().upper() for x in row if pd.notna(x))
+        if "FECHA" in row_str and "REFERENCIA" in row_str:
+            start_row = i
             break
-    if header_row is None:
-        raise ValueError("No se encontró la fila de encabezado con 'Fecha'.")
 
-    df_data = df_raw.iloc[header_row + 1:, :]
+    if start_row is None:
+        raise ValueError("❌ No se encontró la fila de encabezados en el archivo Yappy")
 
-    cols = {
-        "fecha": 1, "referencia": 6, "cliente": 9,
-        "celular": 12, "estado": 14, "monto": 22
-    }
+    # Leer los encabezados reales desde esa fila
+    df = pd.read_excel(
+        io.BytesIO(df_raw.to_excel(index=False, header=False)),
+        sheet_name="ExcelTransactionsYappy",
+        header=start_row,
+        engine="openpyxl"
+    )
 
-    df_yappy = pd.DataFrame({
-        "fecha": df_data.iloc[:, cols["fecha"]],
-        "referencia": df_data.iloc[:, cols["referencia"]],
-        "cliente": df_data.iloc[:, cols["cliente"]],
-        "celular": df_data.iloc[:, cols["celular"]],
-        "estado": df_data.iloc[:, cols["estado"]],
-        "monto": df_data.iloc[:, cols["monto"]],
-    })
+    # Normalizar nombres de columnas
+    df.columns = [
+        unicodedata.normalize("NFKD", str(c)).strip().lower().replace(" ", "_")
+        for c in df.columns
+    ]
 
-    # === 3️⃣ Limpieza y conversión ===
-    df_yappy["fecha"] = df_yappy["fecha"].apply(parse_fecha_espanol)
+    # 🔍 Detectar columnas esperadas
+    col_fecha = next((c for c in df.columns if "fecha" in c), None)
+    col_hora = next((c for c in df.columns if "hora" in c), None)
+    col_ref = next((c for c in df.columns if "referencia" in c), None)
+    col_cliente = next((c for c in df.columns if "nombre" in c), None)
+    col_celular = next((c for c in df.columns if "celular" in c), None)
+    col_estado = next((c for c in df.columns if "estado" in c), None)
+    col_total = next((c for c in df.columns if "total" in c and "sub" not in c), None)
 
-    def to_float(v):
+    if not col_total:
+        raise ValueError("❌ No se encontró columna de Total en el archivo.")
+
+    # Limpiar montos
+    def clean_monto(v):
         if pd.isna(v):
-            return np.nan
-        s = str(v).replace("B/.", "").replace("B/", "").replace("$", "").replace(",", "").strip()
-        m = re.search(r"[-+]?\d*\.?\d+", s)
-        return float(m.group(0)) if m else np.nan
+            return 0.0
 
-    df_yappy["monto"] = df_yappy["monto"].apply(to_float)
+        # Si ya es número (float o int), úsalo directamente
+        if isinstance(v, (float, int)):
+            return float(v)
 
-    for col in ["referencia", "cliente", "celular", "estado"]:
-        df_yappy[col] = df_yappy[col].astype(str).str.strip()
+        # Si viene como texto, limpiamos
+        s = str(v)
+        s = (
+            s.replace("B/.", "")
+            .replace("B/ ", "")
+            .replace("$", "")
+            .replace(",", "")
+            .replace(" ", "")
+            .replace("=", "")
+            .strip()
+        )
+        try:
+            return float(s)
+        except Exception:
+            print(f"⚠️ No se pudo convertir monto: {repr(v)} -> '{s}'")
+            return 0.0
 
-    df_yappy = df_yappy.dropna(subset=["fecha", "monto"], how="any").reset_index(drop=True)
+    df["total"] = df[col_total].astype(str).apply(clean_monto)
+
+    # Normalizar fecha
+    df["fecha"] = pd.to_datetime(df[col_fecha], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    # Limpiar strings
+    for c in [col_ref, col_cliente, col_celular, col_estado]:
+        if c in df.columns:
+            df[c] = df[c].fillna("").astype(str).str.strip()
+
+    # Filtrar filas válidas
+    df = df[df["total"] > 0]
+
+    # Determinar rango de fechas
+    fechas_validas = pd.to_datetime(df["fecha"], errors="coerce").dropna()
+    fecha_inicio = fechas_validas.min().date() if not fechas_validas.empty else None
+    fecha_fin = fechas_validas.max().date() if not fechas_validas.empty else None
+
+    # Armar DataFrame final
+    df_final = pd.DataFrame({
+        "fecha": df["fecha"],
+        "hora": df[col_hora] if col_hora else "",
+        "referencia": df[col_ref],
+        "cliente": df[col_cliente],
+        "celular": df[col_celular],
+        "estado": df[col_estado],
+        "total": df["total"],
+    })
+    print("\n🟣 Columnas detectadas:", df_data.columns.tolist())
+    print("🟣 Muestra de columnas W, X, Y:")
+    for col_idx in range(20, 25):
+        try:
+            print(f"Columna {col_idx}: {df_data.iloc[:5, col_idx].tolist()}")
+        except Exception:
+            pass
 
     return {
         "fecha_inicio": str(fecha_inicio) if fecha_inicio else None,
         "fecha_fin": str(fecha_fin) if fecha_fin else None,
-        "data": df_yappy
+        "data": df_final.to_dict(orient="records"),
     }
-
 
 @router.post("/cierre_preview")
 async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form(None)):
@@ -478,42 +521,58 @@ async def yappy_preview(file: UploadFile = File(...)):
     import io
     import pandas as pd
     import unicodedata
+    import traceback
 
     try:
+        print("🟣 Paso 1: Recibiendo archivo Yappy...")
         contents = await file.read()
 
-        # Leer la hoja con encabezado en la fila 12 (header=11)
+        # === Leer hoja ===
         df = pd.read_excel(
             io.BytesIO(contents),
             sheet_name="ExcelTransactionsYappy",
-            header=11,
+            header=11,  # fila 12 en Excel
             engine="openpyxl",
         )
+        print("🟣 Paso 2: Archivo leído correctamente.")
+        print("🔹 Columnas detectadas (originales):", df.columns.tolist()[:20])
 
-        # 🔹 Normalizar nombres de columnas (quita acentos y espacios)
+        # === Normalizar nombres ===
         def limpiar_nombre(col):
             col = unicodedata.normalize("NFKD", str(col)).encode("ascii", "ignore").decode("utf-8")
             return col.strip().lower().replace("  ", " ")
 
         df.columns = [limpiar_nombre(c) for c in df.columns]
+        print("🔹 Columnas normalizadas:", df.columns.tolist()[:20])
 
-        # 🔹 Mapear nombres de columnas reales
+        # === Buscar columnas ===
+        def buscar_columna(nombre, excluir=None):
+            for c in df.columns:
+                if nombre in c and (excluir not in c if excluir else True):
+                    return c
+            return None
+
         columnas = {
-            "fecha": [c for c in df.columns if "fecha" in c][0],
-            "hora": [c for c in df.columns if "hora" in c][0],
-            "referencia": [c for c in df.columns if "referencia" in c][0],
-            "cliente": [c for c in df.columns if "cliente" in c][0],
-            "celular": [c for c in df.columns if "celular" in c][0],
-            "estado": [c for c in df.columns if "estado" in c][0],
-            "punto_cobro": [c for c in df.columns if "punto" in c][0],
-            "subtotal": [c for c in df.columns if "sub" in c][0],
-            "propina": [c for c in df.columns if "propina" in c][0],
-            "descuento": [c for c in df.columns if "descuento" in c][0],
-            "impuesto": [c for c in df.columns if "impuesto" in c][0],
-            "total": [c for c in df.columns if "total" in c][0],
+            "fecha": buscar_columna("fecha"),
+            "hora": buscar_columna("hora"),
+            "referencia": buscar_columna("referencia"),
+            "cliente": buscar_columna("cliente"),
+            "celular": buscar_columna("celular"),
+            "estado": buscar_columna("estado"),
+            "punto_cobro": buscar_columna("punto"),
+            "subtotal": buscar_columna("sub"),
+            "propina": buscar_columna("propina"),
+            "descuento": buscar_columna("descuento"),
+            "impuesto": buscar_columna("impuesto"),
+            "total": buscar_columna("total", excluir="sub"),
         }
 
-        # 🔹 Crear dataframe limpio
+        print("🟣 Paso 3: Mapeo de columnas detectadas:", columnas)
+
+        if not columnas["total"]:
+            raise ValueError("❌ No se encontró la columna de 'Total' en el archivo.")
+
+        # === Crear DataFrame limpio ===
         df_clean = pd.DataFrame({
             "fecha": df[columnas["fecha"]],
             "hora": df[columnas["hora"]],
@@ -528,31 +587,38 @@ async def yappy_preview(file: UploadFile = File(...)):
             "impuesto": df[columnas["impuesto"]],
             "total": df[columnas["total"]],
         })
+        print("🟣 Paso 4: DataFrame limpio creado. Registros:", len(df_clean))
 
-        # 🔹 Limpiar valores
-        df_clean = df_clean.dropna(subset=["fecha", "referencia"], how="any")
-
-        # 🔹 Convertir fechas y montos
+        # === Limpieza de fechas ===
         def convertir_fecha(valor):
             try:
-                texto = str(valor).replace("mié", "").replace("lun", "").replace("mar", "").replace("mie", "").replace("jue", "").replace("vie", "").replace("sab", "").replace("dom", "").strip()
+                texto = str(valor)
+                texto = re.sub(r"^(lun|mar|mie|mié|jue|vie|sab|dom)\s*", "", texto.strip(), flags=re.IGNORECASE)
                 return pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce")
             except Exception:
                 return pd.NaT
 
         df_clean["fecha"] = df_clean["fecha"].apply(convertir_fecha).dt.date
 
-        # Convertir montos a float
-        for col in ["subtotal", "propina", "descuento", "impuesto", "total"]:
-            df_clean[col] = (
-                df_clean[col]
-                .astype(str)
-                .str.replace("[^0-9,.-]", "", regex=True)
-                .str.replace(",", ".", regex=False)
-            )
-            df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce").fillna(0.0)
+        # === Limpieza de montos ===
+        def convertir_monto(valor):
+            if pd.isna(valor):
+                return 0.0
+            if isinstance(valor, (float, int)):
+                return float(valor)
+            s = str(valor).strip().replace("B/.", "").replace("B/", "").replace("$", "").replace(",", "").replace(" ", "")
+            try:
+                return float(s)
+            except Exception:
+                return 0.0
 
-        # 🔹 Respuesta final
+        for col in ["subtotal", "propina", "descuento", "impuesto", "total"]:
+            df_clean[col] = df_clean[col].apply(convertir_monto)
+
+        print("🟣 Paso 5: Montos convertidos correctamente.")
+        print("🟣 Muestra de totales no nulos:", df_clean[df_clean["total"] > 0].head(3).to_dict(orient="records"))
+
+        # === Respuesta final ===
         return {
             "hoja": "ExcelTransactionsYappy",
             "total_registros": len(df_clean),
@@ -561,7 +627,8 @@ async def yappy_preview(file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        import traceback
+        print("❌ ERROR EN PROCESO YAPPY:")
+        print(traceback.format_exc())
         return {"error": str(e), "trace": traceback.format_exc()}
 
 @router.post("/api/banco_preview")
