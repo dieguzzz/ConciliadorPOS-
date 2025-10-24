@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ConciliacionYappy from "../components/ConciliacionYappy";
+import ConciliacionCompleta from "../components/ConciliacionCompleta";
 
 export default function Home() {
   // =================== ESTADOS GLOBALES ===================
@@ -16,6 +17,9 @@ export default function Home() {
   const [bancoFile, setBancoFile] = useState(null);
   const [bancoData, setBancoData] = useState(null);
   const [bancoLoading, setBancoLoading] = useState(false);
+
+  // ✅ Estado del carrusel
+  const [index, setIndex] = useState(0);
 
   // =================== SUBIR CIERRE ===================
   const handleCierreUpload = async (e) => {
@@ -49,7 +53,6 @@ export default function Home() {
 
   // =================== SUBIR YAPPY ===================
   const handleYappyUpload = async (e) => {
-    console.log("🟢 handleYappyUpload ejecutado");
     const file = e.target.files?.[0];
     if (!file) return;
     setYappyFile(file);
@@ -63,7 +66,6 @@ export default function Home() {
         body: formData,
       });
       const json = await res.json();
-      console.log("🟣 Yappy recibido en frontend:", json);
       setYappyData(json);
     } catch (err) {
       alert("Error procesando archivo Yappy: " + err.message);
@@ -89,20 +91,12 @@ export default function Home() {
         body: formData,
       });
       const json = await res.json();
-      console.log("🏦 Banco recibido en frontend:", json);
-
       if (!res.ok) {
         alert("Error del servidor: " + (json.detail || "Error desconocido"));
         return;
       }
-
-      // Asegurar que preview exista siempre
-      if (json && json.preview) {
-        setBancoData(json);
-      } else {
-        alert("El archivo no devolvió datos válidos.");
-      }
-
+      if (json && json.preview) setBancoData(json);
+      else alert("El archivo no devolvió datos válidos.");
     } catch (err) {
       alert("Error procesando archivo bancario: " + err.message);
     } finally {
@@ -147,21 +141,168 @@ export default function Home() {
     cursor: "pointer",
   };
 
-  // =================== CARRUSEL ===================
-  const [index, setIndex] = useState(0);
+  // =================== SLIDES ===================
   const slides = [
-    { id: "cierre", title: "📂 Vista Cierre POS", content: dataCierre },
+    {
+      id: "cierre",
+      title: "📂 Vista Cierre POS",
+      render: () =>
+        dataCierre ? (
+          <div style={{ marginTop: "1rem" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-around",
+                textAlign: "center",
+                background: "#f9fafb",
+                borderRadius: "10px",
+                padding: "1rem",
+                marginBottom: "1rem",
+              }}
+            >
+              <div>
+                <p style={{ color: "#666", fontSize: "0.9rem" }}>Sucursal</p>
+                <p style={{ fontWeight: "600" }}>
+                  {dataCierre.meta?.sucursal || "—"}
+                </p>
+              </div>
+              <div>
+                <p style={{ color: "#666", fontSize: "0.9rem" }}>Fecha</p>
+                <p style={{ fontWeight: "600" }}>
+                  {dataCierre.meta?.fecha || "—"}
+                </p>
+              </div>
+              <div>
+                <p style={{ color: "#666", fontSize: "0.9rem" }}>Cajero</p>
+                <p style={{ fontWeight: "600" }}>
+                  {dataCierre.meta?.cajero || "—"}
+                </p>
+              </div>
+            </div>
+            <TablaTotales totales={dataCierre.totales} />
+          </div>
+        ) : (
+          <p style={{ textAlign: "center" }}>
+            Sube un archivo de cierre para comenzar
+          </p>
+        ),
+    },
     {
       id: "yappy",
-      title: "💸 Conciliación Yappy",
-      content: { cierre: dataCierre, yappy: yappyData },
+      title: "💜 Conciliación Yappy",
+      render: () => (
+        <ConciliacionYappy cierre={dataCierre} yappy={yappyData} />
+      ),
     },
-    { id: "banco", title: "🏦 Movimientos Bancarios", content: bancoData },
+    {
+      id: "banco",
+      title: "🏦 Movimientos Bancarios",
+      render: () =>
+        bancoData && bancoData.preview ? (
+          <div
+            style={{
+              overflowX: "auto",
+              overflowY: "auto",
+              background: "#f9fafb",
+              borderRadius: "12px",
+              padding: "1.5rem",
+              border: "1px solid #ddd",
+              maxHeight: "75vh",
+              minHeight: "400px",
+              width: "100%",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+            }}
+          >
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "0.9rem",
+              }}
+            >
+              <thead style={{ background: "#e8eaf6" }}>
+                <tr>
+                  <th style={{ padding: "8px" }}>Fecha</th>
+                  <th style={{ padding: "8px" }}>Descripción</th>
+                  <th style={{ padding: "8px" }}>Monto</th>
+                  <th style={{ padding: "8px" }}>Tipo</th>
+                  <th style={{ padding: "8px" }}>Código</th>
+                  <th style={{ padding: "8px" }}>Sucursal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bancoData.preview.map((item, i) => (
+                  <tr
+                    key={i}
+                    style={{
+                      background: i % 2 === 0 ? "#fff" : "#f4f6f8",
+                      borderBottom: "1px solid #eee",
+                    }}
+                  >
+                    <td style={{ padding: "8px" }}>{item.fecha || "—"}</td>
+                    <td style={{ padding: "8px" }}>{item.descripcion || "—"}</td>
+                    <td style={{ padding: "8px", textAlign: "right" }}>
+                      {item.monto != null
+                        ? item.monto.toLocaleString("es-PA", {
+                            style: "currency",
+                            currency: "PAB",
+                          })
+                        : "—"}
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px",
+                        fontWeight: "600",
+                        color:
+                          item.tipo === "VISA"
+                            ? "#1976d2"
+                            : item.tipo === "CLAVE"
+                            ? "#43a047"
+                            : "#555",
+                      }}
+                    >
+                      {item.tipo}
+                    </td>
+                    <td style={{ padding: "8px" }}>{item.codigo || "—"}</td>
+                    <td style={{ padding: "8px" }}>{item.sucursal || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p
+              style={{
+                color: "#555",
+                fontSize: "0.85rem",
+                marginTop: "0.5rem",
+                textAlign: "right",
+              }}
+            >
+              Mostrando {bancoData.preview.length} registros
+            </p>
+          </div>
+        ) : (
+          <p
+            style={{
+              textAlign: "center",
+              color: "#888",
+              background: "#fafafa",
+              padding: "1rem",
+              borderRadius: "10px",
+            }}
+          >
+            Carga un archivo bancario para ver los datos
+          </p>
+        ),
+    },
+    {
+      id: "conciliar",
+      title: "🧮 Conciliación Completa",
+      render: () => <ConciliacionCompleta />,
+    },
   ];
 
   const next = () => setIndex((prev) => (prev + 1) % slides.length);
-  const prev = () =>
-    setIndex((prev) => (prev - 1 + slides.length) % slides.length);
+  const prev = () => setIndex((prev) => (prev - 1 + slides.length) % slides.length);
 
   const arrowStyle = {
     position: "absolute",
@@ -217,10 +358,7 @@ export default function Home() {
         {/* Cierre */}
         <div style={uploadBox}>
           <h3 style={{ ...uploadTitle, color: "#6b5b95" }}>📂 Archivo Cierre</h3>
-          <form
-            onSubmit={handleCierreUpload}
-            style={{ display: "flex", gap: "0.5rem" }}
-          >
+          <form onSubmit={handleCierreUpload} style={{ display: "flex", gap: "0.5rem" }}>
             <input
               type="file"
               accept=".xlsx,.xls"
@@ -243,56 +381,19 @@ export default function Home() {
         {/* Yappy */}
         <div style={uploadBox}>
           <h3 style={{ ...uploadTitle, color: "#b85ac0" }}>💸 Archivo Yappy</h3>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!yappyFile) {
-                alert("Por favor selecciona un archivo Yappy.");
-                return;
-              }
-              setYappyLoading(true);
-              const formData = new FormData();
-              formData.append("file", yappyFile);
-              try {
-                const res = await fetch(
-                  "http://localhost:8000/api/yappy_preview",
-                  {
-                    method: "POST",
-                    body: formData,
-                  }
-                );
-                const json = await res.json();
-                console.log("🟣 Yappy recibido en frontend:", json);
-                setYappyData(json);
-              } catch (err) {
-                alert("Error procesando archivo Yappy: " + err.message);
-              } finally {
-                setYappyLoading(false);
-              }
-            }}
-            style={{ display: "flex", gap: "0.5rem" }}
-          >
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => setYappyFile(e.target.files?.[0] || null)}
-              style={inputStyle}
-            />
-            <button type="submit" disabled={yappyLoading} style={buttonStyle}>
-              {yappyLoading ? "Cargando..." : "Cargar"}
-            </button>
-          </form>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleYappyUpload}
+            style={inputStyle}
+          />
+          {yappyLoading && <p style={{ color: "#b85ac0" }}>Procesando...</p>}
         </div>
 
         {/* Bancario */}
         <div style={uploadBox}>
-          <h3 style={{ ...uploadTitle, color: "#6b5b95" }}>
-            🏦 Archivo Bancario
-          </h3>
-          <form
-            onSubmit={handleBancoUpload}
-            style={{ display: "flex", gap: "0.5rem" }}
-          >
+          <h3 style={{ ...uploadTitle, color: "#6b5b95" }}>🏦 Archivo Bancario</h3>
+          <form onSubmit={handleBancoUpload} style={{ display: "flex", gap: "0.5rem" }}>
             <input
               type="file"
               accept=".xlsx,.xls"
@@ -311,188 +412,28 @@ export default function Home() {
         style={{
           position: "relative",
           width: "100%",
-          maxWidth: "1000px",
+          maxWidth: "1100px",
           background: "#fff",
           borderRadius: "1rem",
           boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
           padding: "2rem",
         }}
       >
-        <button onClick={prev} style={{ ...arrowStyle, left: -70 }}>
-          ⬅
-        </button>
-        <button onClick={next} style={{ ...arrowStyle, right: -70 }}>
-          ➡
-        </button>
+        <button onClick={prev} style={{ ...arrowStyle, left: -70 }}>⬅</button>
+        <button onClick={next} style={{ ...arrowStyle, right: -70 }}>➡</button>
 
-        <h2
-          style={{
-            textAlign: "center",
-            color: "#444",
-            marginBottom: "1rem",
-          }}
-        >
+        <h2 style={{ textAlign: "center", color: "#444", marginBottom: "1rem" }}>
           {slides[index].title}
         </h2>
 
-        {/* Contenido dinámico */}
-        <div style={{ minHeight: "350px" }}>
-          {slides[index].id === "cierre" && dataCierre && (
-            <div style={{ marginTop: "1rem" }}>
-              {/* Meta info */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-around",
-                  textAlign: "center",
-                  background: "#f9fafb",
-                  borderRadius: "10px",
-                  padding: "1rem",
-                  marginBottom: "1rem",
-                }}
-              >
-                <div>
-                  <p style={{ color: "#666", fontSize: "0.9rem" }}>Sucursal</p>
-                  <p style={{ fontWeight: "600" }}>
-                    {dataCierre.meta?.sucursal || "—"}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: "#666", fontSize: "0.9rem" }}>Fecha</p>
-                  <p style={{ fontWeight: "600" }}>
-                    {dataCierre.meta?.fecha || "—"}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: "#666", fontSize: "0.9rem" }}>Cajero</p>
-                  <p style={{ fontWeight: "600" }}>
-                    {dataCierre.meta?.cajero || "—"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Tabla Totales */}
-              <TablaTotales totales={dataCierre.totales} />
-            </div>
-          )}
-
-          {slides[index].id === "yappy" && (
-            <ConciliacionYappy cierre={dataCierre} yappy={yappyData} />
-          )}
-
-          {slides[index].id === "banco" && (
-            <>
-              {bancoData && bancoData.preview ? (
-                <div
-                  style={{
-                    overflowX: "auto",
-                    overflowY: "auto",
-                    background: "#f9fafb",
-                    borderRadius: "12px",
-                    padding: "1.5rem",
-                    border: "1px solid #ddd",
-                    maxHeight: "75vh", // 👈 antes 450px
-                    minHeight: "400px",
-                    width: "100%",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    <thead style={{ background: "#e8eaf6" }}>
-                      <tr>
-                        <th style={{ padding: "8px" }}>Fecha</th>
-                        <th style={{ padding: "8px" }}>Descripción</th>
-                        <th style={{ padding: "8px" }}>Monto</th>
-                        <th style={{ padding: "8px" }}>Tipo</th>
-                        <th style={{ padding: "8px" }}>Código</th>
-                        <th style={{ padding: "8px" }}>Sucursal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bancoData.preview.map((item, i) => (
-                        <tr
-                          key={i}
-                          style={{
-                            background: i % 2 === 0 ? "#fff" : "#f4f6f8",
-                            borderBottom: "1px solid #eee",
-                          }}
-                        >
-                          <td style={{ padding: "8px" }}>
-                            {item.fecha || "—"}
-                          </td>
-                          <td style={{ padding: "8px" }}>
-                            {item.descripcion || "—"}
-                          </td>
-                          <td
-                            style={{ padding: "8px", textAlign: "right" }}
-                          >
-                            {item.monto != null
-                              ? item.monto.toLocaleString("es-PA", {
-                                  style: "currency",
-                                  currency: "PAB",
-                                })
-                              : "—"}
-                          </td>
-                          <td
-                            style={{
-                              padding: "8px",
-                              fontWeight: "600",
-                              color:
-                                item.tipo === "VISA"
-                                  ? "#1976d2"
-                                  : "#43a047",
-                            }}
-                          >
-                            {item.tipo}
-                          </td>
-                          <td style={{ padding: "8px" }}>
-                            {item.codigo || "—"}
-                          </td>
-                          <td style={{ padding: "8px" }}>
-                            {item.sucursal || "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p
-                    style={{
-                      color: "#555",
-                      fontSize: "0.85rem",
-                      marginTop: "0.5rem",
-                      textAlign: "right",
-                    }}
-                  >
-                    Mostrando {bancoData.preview.length} registros
-                  </p>
-                </div>
-              ) : (
-                <p
-                  style={{
-                    textAlign: "center",
-                    color: "#888",
-                    background: "#fafafa",
-                    padding: "1rem",
-                    borderRadius: "10px",
-                  }}
-                >
-                  Carga un archivo bancario para ver los datos
-                </p>
-              )}
-            </>
-          )}
-        </div>
+        {/* Render dinámico */}
+        <div style={{ minHeight: "350px" }}>{slides[index].render()}</div>
       </div>
     </div>
   );
 }
 
+// =================== COMPONENTE TABLA TOTALES ===================
 function TablaTotales({ totales }) {
   if (!totales) return null;
 

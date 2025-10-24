@@ -15,16 +15,112 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
     );
   }
 
+  // ==========================
+  // Helpers de normalización
+  // ==========================
+  const getField = (row: any, key: string) => {
+    if (!row || typeof row !== "object") return undefined;
+    if (key in row) return row[key];
+    const k = Object.keys(row).find((x) => x.toLowerCase() === key.toLowerCase());
+    return k ? row[k] : undefined;
+  };
+
+  // Convierte fechas variadas a 'YYYY-MM-DD' (o null si imposible)
+  const toYMD = (v: any): string | null => {
+    if (v == null || v === "") return null;
+
+    // 1) Date
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      return v.toISOString().slice(0, 10);
+    }
+
+    // 2) Números de Excel (serial)
+    if (typeof v === "number" && isFinite(v)) {
+      // Excel base 1899-12-30 (maneja correctamente el bug de 1900)
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const ms = v * 24 * 60 * 60 * 1000;
+      const d = new Date(excelEpoch.getTime() + ms);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+
+    // 3) String
+    const s = String(v).trim();
+    if (!s) return null;
+
+    // a) ISO-like
+    // '2025-11-09' o '2025/11/09' o '2025-11-09T...'
+    if (/\d{4}[-/]\d{2}[-/]\d{2}/.test(s)) {
+      const clean = s.replace(/\//g, "-").slice(0, 10);
+      const [Y, M, D] = clean.split("-").map((x) => parseInt(x, 10));
+      if (Y && M >= 1 && M <= 12 && D >= 1 && D <= 31) {
+        const d = new Date(Date.UTC(Y, M - 1, D));
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      }
+    }
+
+    // b) 'DD/MM/YYYY' o 'MM/DD/YYYY'
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+      const [a, b, c] = s.split("/").map((x) => parseInt(x, 10));
+      // Heurística: si a > 12 -> es DD/MM/YYYY
+      // si a <= 12 y b > 12 -> es MM/DD/YYYY
+      // si ambos <= 12, preferimos DD/MM/YYYY (por PA/ES)
+      let D = a, M = b, Y = c;
+      if (a <= 12 && b > 12) {
+        // MM/DD/YYYY
+        M = a; D = b;
+      }
+      const d = new Date(Date.UTC(Y, M - 1, D));
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+
+    // c) 'DD-MM-YYYY'
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(s)) {
+      const [d1, m1, y1] = s.split("-").map((x) => parseInt(x, 10));
+      const d = new Date(Date.UTC(y1, m1 - 1, d1));
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+
+    // d) Último intento: Date.parse
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+
+    return null;
+  };
+
+  // ==========================
+  // Datos del cierre / yappy
+  // ==========================
   const detalleCierre = cierre.detalle_yappy || [];
-  const fechaCierreStr: string = cierre.meta?.fecha || "";
+  const fechaCierreRaw: any = cierre.meta?.fecha || "";
+  const cierreYMD = toYMD(fechaCierreRaw); // <-- fecha del cierre normalizada
 
-  // ✅ Obtener datos del archivo Yappy
-  const allTx = Array.isArray(yappy?.preview)
-    ? yappy.preview.slice(0, 20) // 👈 solo muestra las primeras 20 filas
-    : [];
+  const allRows = Array.isArray(yappy?.preview) ? yappy.preview : [];
 
-  console.log("🟣 Yappy recibido en frontend:", yappy);
+  // Normalizamos la fecha de cada transacción Yappy
+  const yappyRows = allRows.map((t: any) => {
+    const f =
+      getField(t, "fecha") ??
+      getField(t, "Fecha") ??
+      getField(t, "FECHA") ??
+      getField(t, "date");
 
+    return {
+      ...t,
+      _fechaOriginal: f,
+      _fechaYMD: toYMD(f),
+    };
+  });
+
+  // Filtrado por la fecha del cierre
+  let filtered = yappyRows;
+  if (cierreYMD) {
+    filtered = yappyRows.filter((r: any) => r._fechaYMD === cierreYMD);
+  }
+
+  // Limitar a 20 (solo visual)
+  const limited = filtered.slice(0, 20);
+
+  // Utilidades de monto / formatos
   const parseNum = (v: any) => {
     if (v == null) return 0;
     if (typeof v === "number") return v;
@@ -34,12 +130,12 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
   };
 
   const computeTotal = (t: any) => {
-    const tot = parseNum(t.total);
+    const tot = parseNum(getField(t, "total"));
     if (Math.abs(tot) > 0.0001) return tot;
-    const subtotal = parseNum(t.subtotal);
-    const propina = parseNum(t.propina);
-    const descuento = parseNum(t.descuento);
-    const impuesto = parseNum(t.impuesto);
+    const subtotal = parseNum(getField(t, "subtotal"));
+    const propina = parseNum(getField(t, "propina"));
+    const descuento = parseNum(getField(t, "descuento"));
+    const impuesto = parseNum(getField(t, "impuesto"));
     return subtotal + propina - descuento + impuesto;
   };
 
@@ -54,28 +150,22 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
   const fmtPhone = (raw: any) => {
     if (!raw) return "";
     const s = String(raw).trim();
-    if (!s) return "";
     const d = s.replace(/\D/g, "");
     const last8 = d.slice(-8);
-    if (last8.length === 8) {
-      return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
-    }
+    if (last8.length === 8) return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
     return s;
   };
 
   return (
     <div style={styles.wrapper}>
-      {/* === Encabezado === */}
-      <div
-        style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}
-      >
+      {/* Header info */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
         <div style={styles.headerBox}>
           📍 {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{" "}
-          {fechaCierreStr || "No detectada"}
+          {cierreYMD || "No detectada"}
         </div>
       </div>
 
-      {/* === Columnas === */}
       <div style={styles.columns}>
         {/* === Cierre POS === */}
         <div style={styles.card}>
@@ -91,12 +181,8 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               {detalleCierre.length > 0 ? (
                 detalleCierre.map((item: any, idx: number) => (
                   <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                    <td style={{ ...styles.td, textAlign: "left" }}>
-                      {item.nombre}
-                    </td>
-                    <td style={{ ...styles.td, textAlign: "right" }}>
-                      {item.monto}
-                    </td>
+                    <td style={{ ...styles.td, textAlign: "left" }}>{item.nombre}</td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>{item.monto}</td>
                   </tr>
                 ))
               ) : (
@@ -110,7 +196,7 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           </table>
         </div>
 
-        {/* === Archivo Yappy === */}
+        {/* === Archivo Yappy (filtrado por la fecha del cierre) === */}
         <div
           style={{
             background: "#f9fafb",
@@ -126,7 +212,7 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           }}
         >
           <div style={{ ...styles.cardHeader, marginBottom: "1rem" }}>
-            💸 Archivo Yappy (todas las transacciones)
+            💸 Archivo Yappy (transacciones del {cierreYMD || "—"})
           </div>
 
           <table style={{ ...styles.table, width: "100%" }}>
@@ -141,8 +227,8 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               </tr>
             </thead>
             <tbody>
-              {allTx.length > 0 ? (
-                allTx.map((t: any, i: number) => (
+              {limited.length > 0 ? (
+                limited.map((t: any, i: number) => (
                   <tr
                     key={i}
                     style={{
@@ -150,11 +236,13 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
                       background: i % 2 === 0 ? "#fff" : "#f4f6f8",
                     }}
                   >
-                    <td style={styles.td}>{t.fecha || ""}</td>
-                    <td style={styles.td}>{t.referencia || ""}</td>
-                    <td style={styles.td}>{t.cliente || ""}</td>
-                    <td style={styles.td}>{fmtPhone(t.celular)}</td>
-                    <td style={styles.td}>{t.estado || ""}</td>
+                    <td style={styles.td}>
+                      {t._fechaOriginal ?? t._fechaYMD ?? ""}
+                    </td>
+                    <td style={styles.td}>{getField(t, "referencia") || ""}</td>
+                    <td style={styles.td}>{getField(t, "cliente") || ""}</td>
+                    <td style={styles.td}>{fmtPhone(getField(t, "celular"))}</td>
+                    <td style={styles.td}>{getField(t, "estado") || ""}</td>
                     <td style={{ ...styles.td, textAlign: "right" }}>
                       {fmtMonto(computeTotal(t))}
                     </td>
@@ -163,7 +251,7 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               ) : (
                 <tr>
                   <td colSpan={6} style={styles.empty}>
-                    Sin transacciones en el archivo Yappy
+                    No hay transacciones Yappy para esta fecha
                   </td>
                 </tr>
               )}
@@ -178,7 +266,7 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               textAlign: "right",
             }}
           >
-            Mostrando {allTx.length} transacciones
+            Mostrando {limited.length} transacciones del {cierreYMD || "—"}
           </p>
         </div>
       </div>
@@ -193,19 +281,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     maxWidth: "1150px",
     margin: "0 auto",
-     boxSizing: "border-box",
-  },
-  h2: {
-    textAlign: "center",
-    color: "#6b5b95",
-    fontWeight: 700,
-    marginBottom: 4,
-  },
-  h4: {
-    textAlign: "center",
-    color: "#6b5b95",
-    marginBottom: 8,
-    fontWeight: 700,
+    boxSizing: "border-box",
   },
   headerBox: {
     textAlign: "center",
@@ -219,7 +295,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   columns: {
     display: "grid",
-    gridTemplateColumns: "30% 70%", // 30% cierre, 70% archivo yappy
+    gridTemplateColumns: "30% 70%",
     gap: "25px",
     alignItems: "start",
     width: "100%",
