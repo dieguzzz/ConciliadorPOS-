@@ -1,5 +1,5 @@
 # backend/app/api_banco.py
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 import pandas as pd
 import io
 import re
@@ -53,7 +53,6 @@ def detectar_tipo(descripcion):
         return "OTRO"
 
 
-
 def extraer_codigo(descripcion):
     """Extrae el número terminal tipo 908068171 de la descripción (últimos 9 dígitos)."""
     if not isinstance(descripcion, str):
@@ -65,14 +64,30 @@ def extraer_codigo(descripcion):
     return None
 
 
+# 🔥 Normalizar nombre de sucursal
+def normalizar_sucursal(nombre):
+    """Normaliza el nombre de la sucursal para comparación."""
+    if not nombre:
+        return ""
+    return str(nombre).strip().upper().replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
+
+
 # --- Endpoint principal ---
 @router.post("/banco_preview")
-async def banco_preview(file: UploadFile = File(...)):
+async def banco_preview(
+    file: UploadFile = File(...),
+    fecha_cierre: str = Form(None),  # 🔥 NUEVO: Fecha del cierre
+    sucursal_cierre: str = Form(None)  # 🔥 NUEVO: Sucursal del cierre
+):
     """
     Lee el archivo de movimientos bancarios (CLAVE/VISA),
-    limpia y mapea con la lista fija de puntos de venta.
+    limpia y filtra por fecha y sucursal del cierre.
     """
     try:
+        print(f"📥 Recibido archivo banco: {file.filename}")
+        print(f"📅 Fecha del cierre: {fecha_cierre}")
+        print(f"🏢 Sucursal del cierre: {sucursal_cierre}")
+
         # Leer contenido del Excel subido
         content = await file.read()
         if not content:
@@ -114,8 +129,10 @@ async def banco_preview(file: UploadFile = File(...)):
         df_proc = df_proc[df_proc["fecha"].notna()]
         df_proc = df_proc[df_proc["descripcion"].notna()]
 
+        print(f"📊 Total registros después de limpieza: {len(df_proc)}")
+
         # --- Cargar lista de puntos de venta ---
-        lista_path = Path("data/Lista_Punto_Venta.xlsx")  # ruta relativa compatible
+        lista_path = Path("data/Lista_Punto_Venta.xlsx")
         try:
             lista_df = pd.read_excel(lista_path, engine="openpyxl")
         except Exception as e:
@@ -130,17 +147,55 @@ async def banco_preview(file: UploadFile = File(...)):
         # Asignar sucursal
         df_proc["sucursal"] = df_proc["codigo"].map(map_suc).fillna("DESCONOCIDO")
 
+        # 🔥 FILTRAR POR FECHA DEL CIERRE
+        if fecha_cierre:
+            # Convertir fecha del cierre a date object
+            try:
+                # Intentar DD/MM/YYYY
+                fecha_obj = datetime.strptime(fecha_cierre, "%d/%m/%Y").date()
+            except:
+                try:
+                    # Intentar YYYY-MM-DD
+                    fecha_obj = datetime.strptime(fecha_cierre, "%Y-%m-%d").date()
+                except:
+                    print(f"⚠️ No se pudo parsear la fecha del cierre: {fecha_cierre}")
+                    fecha_obj = None
+            
+            if fecha_obj:
+                antes_fecha = len(df_proc)
+                df_proc = df_proc[df_proc["fecha"] == fecha_obj]
+                print(f"✅ Filtrado por fecha {fecha_obj}: {len(df_proc)} de {antes_fecha} registros")
+
+        # 🔥 FILTRAR POR SUCURSAL DEL CIERRE
+        if sucursal_cierre:
+            sucursal_norm = normalizar_sucursal(sucursal_cierre)
+            df_proc["sucursal_norm"] = df_proc["sucursal"].apply(normalizar_sucursal)
+            
+            antes_sucursal = len(df_proc)
+            df_proc = df_proc[df_proc["sucursal_norm"] == sucursal_norm]
+            print(f"✅ Filtrado por sucursal '{sucursal_cierre}': {len(df_proc)} de {antes_sucursal} registros")
+            
+            # Eliminar columna temporal
+            df_proc = df_proc.drop(columns=["sucursal_norm"])
+
         # Limpiar duplicados y resetear índice
         df_proc = df_proc.drop_duplicates().reset_index(drop=True)
 
-        # 🔹 Limitar a 20 resultados para prueba
-        preview = df_proc.head(20).to_dict(orient="records")
+        # Convertir fechas a string para serialización JSON
+        df_proc["fecha"] = df_proc["fecha"].astype(str)
+
+        # Retornar todos los resultados filtrados (sin límite)
+        preview = df_proc.to_dict(orient="records")
 
         return {
             "ok": True,
-            "message": "Archivo procesado correctamente (limitado a 20 registros)",
-            "total_registros": len(df_proc),
-            "preview": preview
+            "message": f"Archivo procesado: {len(preview)} registros coinciden",
+            "total_registros": len(preview),
+            "preview": preview,
+            "filtros": {
+                "fecha": fecha_cierre,
+                "sucursal": sucursal_cierre
+            }
         }
 
     except HTTPException:

@@ -1,5 +1,4 @@
-// frontend/src/components/ConciliacionYappy.tsx
-import React from "react";
+import React, { useState } from "react";
 
 interface Props {
   cierre: any;
@@ -7,6 +6,9 @@ interface Props {
 }
 
 const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   if (!cierre || !yappy) {
     return (
       <div style={styles.infoMuted}>
@@ -18,113 +20,95 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
   // ==========================
   // Helpers de normalización
   // ==========================
+
   const getField = (row: any, key: string) => {
     if (!row || typeof row !== "object") return undefined;
     if (key in row) return row[key];
-    const k = Object.keys(row).find((x) => x.toLowerCase() === key.toLowerCase());
+    const k = Object.keys(row).find(
+      (x) => x.toLowerCase() === key.toLowerCase()
+    );
     return k ? row[k] : undefined;
   };
 
-  // Convierte fechas variadas a 'YYYY-MM-DD' (o null si imposible)
   const toYMD = (v: any): string | null => {
-    if (v == null || v === "") return null;
+    if (!v) return null;
 
-    // 1) Date
     if (v instanceof Date && !isNaN(v.getTime())) {
       return v.toISOString().slice(0, 10);
     }
 
-    // 2) Números de Excel (serial)
-    if (typeof v === "number" && isFinite(v)) {
-      // Excel base 1899-12-30 (maneja correctamente el bug de 1900)
+    if (typeof v === "number") {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-      const ms = v * 24 * 60 * 60 * 1000;
-      const d = new Date(excelEpoch.getTime() + ms);
-      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      const d = new Date(excelEpoch.getTime() + v * 86400000);
+      return !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null;
     }
 
-    // 3) String
-    const s = String(v).trim();
-    if (!s) return null;
+    let s = String(v).trim();
+    s = s.replace(/^(lun|mar|mi[eé]|jue|vie|s[aá]b|dom)\.?\s+/i, "").trim();
 
-    // a) ISO-like
-    // '2025-11-09' o '2025/11/09' o '2025-11-09T...'
-    if (/\d{4}[-/]\d{2}[-/]\d{2}/.test(s)) {
-      const clean = s.replace(/\//g, "-").slice(0, 10);
-      const [Y, M, D] = clean.split("-").map((x) => parseInt(x, 10));
-      if (Y && M >= 1 && M <= 12 && D >= 1 && D <= 31) {
-        const d = new Date(Date.UTC(Y, M - 1, D));
-        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    const ddmmyyyyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (ddmmyyyyMatch) {
+      const [, day, month, year] = ddmmyyyyMatch;
+      const d = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day)));
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().slice(0, 10);
       }
     }
 
-    // b) 'DD/MM/YYYY' o 'MM/DD/YYYY'
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
-      const [a, b, c] = s.split("/").map((x) => parseInt(x, 10));
-      // Heurística: si a > 12 -> es DD/MM/YYYY
-      // si a <= 12 y b > 12 -> es MM/DD/YYYY
-      // si ambos <= 12, preferimos DD/MM/YYYY (por PA/ES)
-      let D = a, M = b, Y = c;
-      if (a <= 12 && b > 12) {
-        // MM/DD/YYYY
-        M = a; D = b;
-      }
-      const d = new Date(Date.UTC(Y, M - 1, D));
-      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return s.slice(0, 10);
     }
 
-    // c) 'DD-MM-YYYY'
-    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(s)) {
-      const [d1, m1, y1] = s.split("-").map((x) => parseInt(x, 10));
-      const d = new Date(Date.UTC(y1, m1 - 1, d1));
-      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    }
-
-    // d) Último intento: Date.parse
     const parsed = new Date(s);
-    if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
 
     return null;
   };
 
   // ==========================
-  // Datos del cierre / yappy
+  // Procesamiento principal
   // ==========================
+
   const detalleCierre = cierre.detalle_yappy || [];
   const fechaCierreRaw: any = cierre.meta?.fecha || "";
-  const cierreYMD = toYMD(fechaCierreRaw); // <-- fecha del cierre normalizada
+  const cierreYMD = toYMD(fechaCierreRaw);
 
   const allRows = Array.isArray(yappy?.preview) ? yappy.preview : [];
-
-  // Normalizamos la fecha de cada transacción Yappy
   const yappyRows = allRows.map((t: any) => {
     const f =
-      getField(t, "fecha") ??
-      getField(t, "Fecha") ??
-      getField(t, "FECHA") ??
+      getField(t, "fecha") ||
+      getField(t, "Fecha") ||
+      getField(t, "FECHA") ||
       getField(t, "date");
-
-    return {
-      ...t,
-      _fechaOriginal: f,
-      _fechaYMD: toYMD(f),
-    };
+    const normal = toYMD(f);
+    return { ...t, _fechaOriginal: f, _fechaYMD: normal };
   });
 
-  // Filtrado por la fecha del cierre
-  let filtered = yappyRows;
+  // Filtrar por fecha
+  let filtered = [];
   if (cierreYMD) {
-    filtered = yappyRows.filter((r: any) => r._fechaYMD === cierreYMD);
+    const cierreClean = cierreYMD.trim();
+    filtered = yappyRows.filter((r: any) => {
+      const yappyClean = (r._fechaYMD || "").trim();
+      return yappyClean === cierreClean;
+    });
+  } else {
+    filtered = yappyRows;
   }
 
-  // Limitar a 20 (solo visual)
-  const limited = filtered.slice(0, 20);
-
-  // Utilidades de monto / formatos
+  // ==========================
+  // Utils numéricos y texto
+  // ==========================
   const parseNum = (v: any) => {
     if (v == null) return 0;
     if (typeof v === "number") return v;
-    const s = String(v).trim().replace(/[^\d,-.]/g, "").replace(",", ".");
+    const s = String(v).trim()
+      .replace(/B\/\.\s*/g, "")
+      .replace(/\$/g, "")
+      .replace(/,/g, "")
+      .trim();
     const n = parseFloat(s);
     return isNaN(n) ? 0 : n;
   };
@@ -152,22 +136,184 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
     const s = String(raw).trim();
     const d = s.replace(/\D/g, "");
     const last8 = d.slice(-8);
-    if (last8.length === 8) return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
+    if (last8.length === 8)
+      return `(+507) ${last8.slice(0, 4)}-${last8.slice(4)}`;
     return s;
   };
 
+  const normalizeName = (name: string): string => {
+    if (!name) return "";
+    return name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .trim();
+  };
+
+  const similarity = (s1: string, s2: string): number => {
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+    if (longer.length === 0) return 1.0;
+    const editDistance = levenshtein(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  };
+
+  const levenshtein = (s1: string, s2: string): number => {
+    const costs = [];
+    for (let i = 0; i <= s1.length; i++) {
+      let lastValue = i;
+      for (let j = 0; j <= s2.length; j++) {
+        if (i === 0) costs[j] = j;
+        else if (j > 0) {
+          let newValue = costs[j - 1];
+          if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+          costs[j - 1] = lastValue;
+          lastValue = newValue;
+        }
+      }
+      if (i > 0) costs[s2.length] = lastValue;
+    }
+    return costs[s2.length];
+  };
+
+  // 🔥 Buscar coincidencias
+  interface Match {
+    yappyRow: any;
+    cierreItem: any;
+    matchType: "exact" | "similar" | "amount_duplicate" | "none";
+    color: string;
+    similarity?: number;
+  }
+
+  const matches: Match[] = filtered.map((yappyRow: any) => {
+    const yappyTotal = computeTotal(yappyRow);
+    const yappyName = normalizeName(getField(yappyRow, "cliente") || "");
+
+    let bestMatch: Match = {
+      yappyRow,
+      cierreItem: null,
+      matchType: "none",
+      color: "#fff",
+    };
+
+    let matchesFound = 0;
+
+    for (const cierreItem of detalleCierre) {
+      const cierreTotal = parseNum(cierreItem.monto);
+      const cierreName = normalizeName(cierreItem.nombre || "");
+
+      const amountMatch = Math.abs(yappyTotal - cierreTotal) <= 0.02;
+
+      if (amountMatch) {
+        matchesFound++;
+        const sim = similarity(yappyName, cierreName);
+
+        if (sim >= 0.7) {
+          return {
+            yappyRow,
+            cierreItem,
+            matchType: "exact" as const,
+            color: "#d4edda",
+            similarity: sim,
+          };
+        }
+
+        if (bestMatch.matchType !== "exact") {
+          bestMatch = {
+            yappyRow,
+            cierreItem,
+            matchType: "similar" as const,
+            color: "#fff3cd",
+            similarity: sim,
+          };
+        }
+      }
+    }
+
+    if (bestMatch.matchType === "similar" && matchesFound > 1) {
+      bestMatch.matchType = "amount_duplicate";
+      bestMatch.color = "#cfe2ff";
+    }
+
+    return bestMatch;
+  });
+
+  const validMatches = matches.filter((m) => m.matchType !== "none");
+
+  // 🔥 ORDENAR: Verde primero, luego amarillo, luego azul
+  const sortOrder = { exact: 1, similar: 2, amount_duplicate: 3 };
+  validMatches.sort((a, b) => sortOrder[a.matchType] - sortOrder[b.matchType]);
+
+  // Resumen por tipo
+  const exactCount = validMatches.filter((m) => m.matchType === "exact").length;
+  const similarCount = validMatches.filter((m) => m.matchType === "similar").length;
+  const duplicateCount = validMatches.filter((m) => m.matchType === "amount_duplicate").length;
+
+  // ==========================
+  // Paginación
+  // ==========================
+  const totalPages = Math.ceil(validMatches.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentItems = validMatches.slice(startIndex, endIndex);
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  // ==========================
+  // Render
+  // ==========================
   return (
     <div style={styles.wrapper}>
-      {/* Header info */}
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-        <div style={styles.headerBox}>
-          📍 {cierre.meta?.sucursal || "Sucursal no detectada"} — Fecha:{" "}
-          {cierreYMD || "No detectada"}
+      <h2 style={styles.title}>💸 Conciliación Yappy</h2>
+
+      {/* Info de fecha y sucursal */}
+      <div style={styles.infoBox}>
+        <p style={styles.infoText}>
+          📍 <strong>Sucursal:</strong> {cierre.meta?.sucursal || "—"}
+        </p>
+        <p style={styles.infoText}>
+          📅 <strong>Fecha:</strong> {cierreYMD || "No detectada"}
+        </p>
+      </div>
+
+      {/* Resumen de coincidencias */}
+      <div style={styles.summaryGrid}>
+        <div style={{ ...styles.summaryCard, borderColor: "#28a745" }}>
+          <div style={styles.summaryLabel}>✅ Coincidencias Exactas</div>
+          <div style={{ ...styles.summaryAmount, color: "#28a745" }}>
+            {exactCount}
+          </div>
+          <div style={styles.summaryCount}>Nombre + Monto</div>
+        </div>
+
+        <div style={{ ...styles.summaryCard, borderColor: "#ffc107" }}>
+          <div style={styles.summaryLabel}>⚠️ Coincidencias Parciales</div>
+          <div style={{ ...styles.summaryAmount, color: "#ffc107" }}>
+            {similarCount}
+          </div>
+          <div style={styles.summaryCount}>Solo Monto</div>
+        </div>
+
+        <div style={{ ...styles.summaryCard, borderColor: "#17a2b8" }}>
+          <div style={styles.summaryLabel}>🔄 Montos Duplicados</div>
+          <div style={{ ...styles.summaryAmount, color: "#17a2b8" }}>
+            {duplicateCount}
+          </div>
+          <div style={styles.summaryCount}>Múltiples con mismo monto</div>
         </div>
       </div>
 
+      {/* Tabla de conciliación */}
       <div style={styles.columns}>
-        {/* === Cierre POS === */}
+        {/* Cierre POS */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>📋 Cierre POS (Detalles Yappy)</div>
           <table style={styles.table}>
@@ -179,12 +325,27 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
             </thead>
             <tbody>
               {detalleCierre.length > 0 ? (
-                detalleCierre.map((item: any, idx: number) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid #eee" }}>
-                    <td style={{ ...styles.td, textAlign: "left" }}>{item.nombre}</td>
-                    <td style={{ ...styles.td, textAlign: "right" }}>{item.monto}</td>
-                  </tr>
-                ))
+                detalleCierre.map((item: any, idx: number) => {
+                  // Buscar si este item tiene match
+                  const match = validMatches.find(
+                    (m) => m.cierreItem?.nombre === item.nombre
+                  );
+                  const bgColor = match?.color || "#fff";
+
+                  return (
+                    <tr
+                      key={idx}
+                      style={{ borderBottom: "1px solid #eee", backgroundColor: bgColor }}
+                    >
+                      <td style={{ ...styles.td, textAlign: "left" }}>
+                        {item.nombre}
+                      </td>
+                      <td style={{ ...styles.td, textAlign: "right" }}>
+                        {item.monto}
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={2} style={styles.empty}>
@@ -196,78 +357,94 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           </table>
         </div>
 
-        {/* === Archivo Yappy (filtrado por la fecha del cierre) === */}
-        <div
-          style={{
-            background: "#f9fafb",
-            borderRadius: "14px",
-            padding: "2rem 2rem 1.5rem 2rem",
-            border: "1px solid #ddd",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-            maxHeight: "78vh",
-            minHeight: "450px",
-            overflowY: "auto",
-            overflowX: "auto",
-            width: "100%",
-          }}
-        >
-          <div style={{ ...styles.cardHeader, marginBottom: "1rem" }}>
-            💸 Archivo Yappy (transacciones del {cierreYMD || "—"})
+        {/* Yappy filtrado */}
+        <div style={styles.card}>
+          <div style={styles.cardHeader}>
+            💸 Archivo Yappy (coincidencias del {cierreYMD || "—"})
           </div>
 
-          <table style={{ ...styles.table, width: "100%" }}>
-            <thead>
-              <tr style={styles.theadRow}>
-                <th style={styles.th}>Fecha</th>
-                <th style={styles.th}>Referencia</th>
-                <th style={styles.th}>Cliente</th>
-                <th style={styles.th}>Celular</th>
-                <th style={styles.th}>Estado</th>
-                <th style={{ ...styles.th, textAlign: "right" }}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {limited.length > 0 ? (
-                limited.map((t: any, i: number) => (
-                  <tr
-                    key={i}
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      background: i % 2 === 0 ? "#fff" : "#f4f6f8",
-                    }}
-                  >
-                    <td style={styles.td}>
-                      {t._fechaOriginal ?? t._fechaYMD ?? ""}
-                    </td>
-                    <td style={styles.td}>{getField(t, "referencia") || ""}</td>
-                    <td style={styles.td}>{getField(t, "cliente") || ""}</td>
-                    <td style={styles.td}>{fmtPhone(getField(t, "celular"))}</td>
-                    <td style={styles.td}>{getField(t, "estado") || ""}</td>
-                    <td style={{ ...styles.td, textAlign: "right" }}>
-                      {fmtMonto(computeTotal(t))}
+          <div style={styles.tableContainer}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.theadRow}>
+                  <th style={styles.th}>Fecha</th>
+                  <th style={styles.th}>Referencia</th>
+                  <th style={styles.th}>Cliente</th>
+                  <th style={styles.th}>Celular</th>
+                  <th style={styles.th}>Estado</th>
+                  <th style={{ ...styles.th, textAlign: "right" }}>Total</th>
+                  <th style={styles.th}>Match POS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentItems.length > 0 ? (
+                  currentItems.map((match: Match, i: number) => {
+                    const t = match.yappyRow;
+                    return (
+                      <tr
+                        key={i}
+                        style={{
+                          borderBottom: "1px solid #eee",
+                          backgroundColor: match.color,
+                        }}
+                      >
+                        <td style={styles.td}>
+                          {t._fechaOriginal ?? t._fechaYMD ?? ""}
+                        </td>
+                        <td style={styles.td}>{getField(t, "referencia") || ""}</td>
+                        <td style={styles.td}>{getField(t, "cliente") || ""}</td>
+                        <td style={styles.td}>{fmtPhone(getField(t, "celular"))}</td>
+                        <td style={styles.td}>{getField(t, "estado") || ""}</td>
+                        <td style={{ ...styles.td, textAlign: "right" }}>
+                          {fmtMonto(computeTotal(t))}
+                        </td>
+                        <td style={{ ...styles.td, fontSize: "0.8rem" }}>
+                          {match.cierreItem?.nombre || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} style={styles.empty}>
+                      No hay coincidencias para esta fecha
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} style={styles.empty}>
-                    No hay transacciones Yappy para esta fecha
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-          <p
-            style={{
-              color: "#555",
-              fontSize: "0.85rem",
-              marginTop: "0.75rem",
-              textAlign: "right",
-            }}
-          >
-            Mostrando {limited.length} transacciones del {cierreYMD || "—"}
-          </p>
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div style={styles.pagination}>
+              <button
+                onClick={handlePrevPage}
+                disabled={currentPage === 1}
+                style={{
+                  ...styles.pageButton,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                  cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                }}
+              >
+                ← Anterior
+              </button>
+              <span style={styles.pageInfo}>
+                Página {currentPage} de {totalPages} ({validMatches.length} coincidencias)
+              </span>
+              <button
+                onClick={handleNextPage}
+                disabled={currentPage === totalPages}
+                style={{
+                  ...styles.pageButton,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                  cursor: currentPage === totalPages ? "not-allowed" : "pointer",
+                }}
+              >
+                Siguiente →
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -276,22 +453,56 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
 
 const styles: Record<string, React.CSSProperties> = {
   wrapper: {
-    background: "transparent",
-    padding: "1.5rem 2rem",
-    width: "100%",
-    maxWidth: "1150px",
-    margin: "0 auto",
-    boxSizing: "border-box",
+    background: "#fff",
+    borderRadius: "12px",
+    padding: "1.5rem",
+    marginBottom: "2rem",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
   },
-  headerBox: {
-    textAlign: "center",
+  title: {
     color: "#6b5b95",
-    fontWeight: 600,
+    marginBottom: "1rem",
+    fontSize: "1.3rem",
+    fontWeight: "700",
+  },
+  infoBox: {
     background: "#f8f6ff",
-    padding: "8px 16px",
-    borderRadius: 10,
-    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-    minWidth: "fit-content",
+    padding: "12px",
+    borderRadius: "8px",
+    marginBottom: "1rem",
+  },
+  infoText: {
+    margin: "4px 0",
+    fontSize: "0.95rem",
+    color: "#4b5563",
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "1rem",
+    marginBottom: "1.5rem",
+  },
+  summaryCard: {
+    background: "#fff",
+    border: "2px solid",
+    borderRadius: "10px",
+    padding: "1rem",
+    textAlign: "center" as const,
+  },
+  summaryLabel: {
+    fontSize: "0.85rem",
+    color: "#6b7280",
+    fontWeight: "600",
+    marginBottom: "0.5rem",
+  },
+  summaryAmount: {
+    fontSize: "1.5rem",
+    fontWeight: "700",
+    marginBottom: "0.25rem",
+  },
+  summaryCount: {
+    fontSize: "0.8rem",
+    color: "#9ca3af",
   },
   columns: {
     display: "grid",
@@ -302,9 +513,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     background: "#fff",
-    borderRadius: "14px",
-    boxShadow: "0 6px 18px rgba(0,0,0,.08)",
+    borderRadius: "10px",
+    border: "1px solid #e5e7eb",
     padding: "12px",
+    maxHeight: "78vh",
+    overflowY: "auto" as const,
   },
   cardHeader: {
     color: "#6b5b95",
@@ -314,22 +527,49 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "6px",
   },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: ".9rem" },
+  tableContainer: {
+    overflowX: "auto" as const,
+    borderRadius: "8px",
+  },
+  table: { width: "100%", borderCollapse: "collapse" as const, fontSize: ".9rem" },
   theadRow: { background: "#fff6d6", color: "#4b5563" },
-  th: { padding: "6px 8px", fontWeight: 700, textAlign: "left" },
-  td: { padding: "6px 8px", verticalAlign: "middle" },
+  th: { padding: "10px 8px", fontWeight: 700, textAlign: "left" as const, borderBottom: "2px solid #6b5b95" },
+  td: { padding: "8px", verticalAlign: "middle" as const },
   empty: {
-    textAlign: "center",
+    textAlign: "center" as const,
     color: "#9aa3af",
     fontStyle: "italic",
     padding: "14px",
   },
   infoMuted: {
-    textAlign: "center",
+    textAlign: "center" as const,
     color: "#6b7280",
     background: "#f3f4f6",
     padding: "10px 12px",
     borderRadius: 10,
+  },
+  pagination: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: "1rem",
+    paddingTop: "1rem",
+    borderTop: "1px solid #e5e7eb",
+  },
+  pageButton: {
+    background: "#6b5b95",
+    color: "#fff",
+    border: "none",
+    padding: "10px 20px",
+    borderRadius: "8px",
+    fontWeight: 600,
+    fontSize: "0.9rem",
+    cursor: "pointer",
+  },
+  pageInfo: {
+    color: "#6b7280",
+    fontSize: "0.9rem",
+    fontWeight: 600,
   },
 };
 
