@@ -1,11 +1,10 @@
 services:
   # Base de datos PostgreSQL
-  - type: pspg
+  - type: pg
     name: conciliador-db
     databaseName: conciliador_db
     user: conciliador_user
     plan: free
-    maxConnections: 25
 
   # Backend FastAPI
   - type: web
