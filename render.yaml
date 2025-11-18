@@ -1,11 +1,4 @@
 services:
-  # Base de datos PostgreSQL
-  - type: pg
-    name: conciliador-db
-    databaseName: conciliador_db
-    user: conciliador_user
-    plan: free
-
   # Backend FastAPI
   - type: web
     name: conciliador-backend
@@ -57,3 +50,9 @@ services:
         value: https://conciliador-backend.onrender.com
     healthCheckPath: /
     autoDeploy: true
+
+databases:
+  - name: conciliador-db
+    databaseName: conciliador_db
+    user: conciliador_user
+    plan: free
