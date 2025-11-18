@@ -189,7 +189,7 @@ export default function ConciliacionCompleta() {
                     fontWeight: 600,
                   }}
                 >
-                  {estado}: {count}
+                  {estado}: {String(count)}
                 </div>
               ))}
             </div>

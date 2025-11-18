@@ -44,7 +44,7 @@ const ConciliacionBanco: React.FC<ConciliacionBancoProps> = ({ apiUrl }) => {
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
-      setData(response.data.preview);
+      setData((response.data as any).preview || []);
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.detail || "Error procesando el archivo.");
