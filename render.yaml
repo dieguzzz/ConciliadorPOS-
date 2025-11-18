@@ -10,7 +10,7 @@ services:
   - type: web
     name: conciliador-backend
     env: docker
-    dockerfilePath: ./backend/Dockerfile
+    dockerfilePath: Dockerfile
     dockerContext: ./backend
     plan: free
     buildCommand: ""
@@ -46,7 +46,7 @@ services:
   - type: web
     name: conciliador-frontend
     env: docker
-    dockerfilePath: ./frontend/Dockerfile
+    dockerfilePath: Dockerfile
     dockerContext: ./frontend
     plan: free
     buildCommand: ""
