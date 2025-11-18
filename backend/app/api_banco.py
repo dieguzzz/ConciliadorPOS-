@@ -132,7 +132,30 @@ async def banco_preview(
         print(f"📊 Total registros después de limpieza: {len(df_proc)}")
 
         # --- Cargar lista de puntos de venta ---
-        lista_path = Path("data/Lista_Punto_Venta.xlsx")
+        # Buscar el archivo en diferentes ubicaciones posibles
+        posibles_rutas = [
+            Path("data/Lista_Punto_Venta.xlsx"),
+            Path("app/data/Lista_Punto_Venta.xlsx"),
+            Path("../data/Lista_Punto_Venta.xlsx"),
+            Path("/app/data/Lista_Punto_Venta.xlsx"),
+            Path("/app/app/data/Lista_Punto_Venta.xlsx"),
+        ]
+        lista_path = None
+        for ruta in posibles_rutas:
+            if ruta.exists():
+                lista_path = ruta
+                break
+        
+        if not lista_path:
+            # Intentar buscar en el directorio actual y subdirectorios
+            import os
+            for root, dirs, files in os.walk("."):
+                if "Lista_Punto_Venta.xlsx" in files:
+                    lista_path = Path(root) / "Lista_Punto_Venta.xlsx"
+                    break
+        
+        if not lista_path:
+            raise HTTPException(status_code=500, detail="No se encontró el archivo Lista_Punto_Venta.xlsx")
         try:
             lista_df = pd.read_excel(lista_path, engine="openpyxl")
         except Exception as e:

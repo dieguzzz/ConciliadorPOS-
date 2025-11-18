@@ -29,7 +29,8 @@ export default function ConciliacionCompleta() {
     formData.append("banco", files.banco);
 
     try {
-      const res = await fetch("http://localhost:8000/api/conciliar_auto", {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/conciliar_auto`, {
         method: "POST",
         body: formData,
       });

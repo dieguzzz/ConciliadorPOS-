@@ -1,1 +1,56 @@
+services:
+  # Base de datos PostgreSQL
+  - type: pspg
+    name: conciliador-db
+    databaseName: conciliador_db
+    user: conciliador_user
+    plan: free
+    maxConnections: 25
 
+  # Backend FastAPI
+  - type: web
+    name: conciliador-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: conciliador-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: conciliador-db
+          property: password
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: conciliador-db
+          property: database
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: conciliador-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: conciliador-db
+          property: port
+      - key: CORS_ORIGINS
+        sync: false
+        value: https://conciliador-frontend.onrender.com
+    healthCheckPath: /
+    autoDeploy: true
+
+  # Frontend Next.js
+  - type: web
+    name: conciliador-frontend
+    env: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false
+        value: https://conciliador-backend.onrender.com
+    healthCheckPath: /
+    autoDeploy: true

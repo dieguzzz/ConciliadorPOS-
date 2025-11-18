@@ -15,7 +15,8 @@ export default function PreviewCierre() {
     formData.append("cierre", file);
     formData.append("hoja_cierre", hoja);
 
-    const res = await fetch("http://localhost:8000/api/cierre_preview", {
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+    const res = await fetch(`${apiBase}/api/cierre_preview`, {
       method: "POST",
       body: formData,
     });

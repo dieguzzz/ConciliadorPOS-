@@ -30,7 +30,8 @@ export default function Home() {
     formData.append("hoja_cierre", hojaSeleccionada);
 
     try {
-      const res = await fetch("http://localhost:8000/api/cierre_preview", {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/cierre_preview`, {
         method: "POST",
         body: formData,
       });
@@ -63,7 +64,8 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/api/yappy_preview", {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/yappy_preview`, {
         method: "POST",
         body: formData,
       });
@@ -100,7 +102,8 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/api/banco_preview", {
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/banco_preview`, {
         method: "POST",
         body: formData,
       });
