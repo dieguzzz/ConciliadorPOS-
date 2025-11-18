@@ -13,6 +13,8 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     plan: free
+    buildCommand: ""
+    startCommand: ""
     envVars:
       - key: POSTGRES_USER
         fromDatabase:
@@ -47,6 +49,8 @@ services:
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
     plan: free
+    buildCommand: ""
+    startCommand: ""
     envVars:
       - key: NEXT_PUBLIC_API_BASE
         sync: false
