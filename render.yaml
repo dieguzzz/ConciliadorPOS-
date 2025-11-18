@@ -30,7 +30,7 @@ services:
           name: conciliador-db
           property: port
       - key: CORS_ORIGINS
-        value: https://conciliador-frontend.onrender.com
+        value: "*"
     healthCheckPath: /
     autoDeploy: true
 
