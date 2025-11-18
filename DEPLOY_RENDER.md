@@ -28,33 +28,44 @@ He revisado tu proyecto y he corregido los siguientes problemas:
 
 ## 🚀 Pasos para Desplegar en Render
 
-### Opción 1: Despliegue Automático con render.yaml (Recomendado)
+### Opción 1: Despliegue Automático con Blueprint (Recomendado) ✅
 
 1. **Sube tu código a GitHub/GitLab/Bitbucket**
    ```bash
-   git add .
-   git commit -m "Preparado para Render"
    git push origin main
    ```
 
-2. **Conecta tu repositorio en Render**
+2. **Crea un nuevo Blueprint en Render**
    - Ve a [render.com](https://render.com)
    - Inicia sesión o crea una cuenta
-   - Click en "New" → "Blueprint"
-   - Conecta tu repositorio
-   - Render detectará automáticamente el `render.yaml`
+   - Click en **"New"** → **"Blueprint"** (o "New Blueprint")
+   - Conecta tu repositorio de GitHub/GitLab/Bitbucket
+   - Selecciona el repositorio `ConciliadorPOS`
+   - Render detectará automáticamente el archivo `render.yaml` en la raíz
 
-3. **Configura las Variables de Entorno**
-   - En el servicio del **frontend**, asegúrate de que `NEXT_PUBLIC_API_BASE` apunte a la URL de tu backend
-   - Ejemplo: `https://conciliador-backend.onrender.com`
-   - En el servicio del **backend**, `CORS_ORIGINS` debe apuntar a la URL de tu frontend
-   - Ejemplo: `https://conciliador-frontend.onrender.com`
+3. **Revisa la configuración del Blueprint**
+   - Render mostrará una vista previa de los 3 servicios que se crearán:
+     - ✅ Base de datos PostgreSQL (`conciliador-db`)
+     - ✅ Backend FastAPI (`conciliador-backend`)
+     - ✅ Frontend Next.js (`conciliador-frontend`)
+   - Verifica que los nombres y configuraciones sean correctos
 
-4. **Espera a que se complete el despliegue**
-   - Render construirá automáticamente los 3 servicios:
+4. **Aplica el Blueprint**
+   - Click en **"Apply"** o **"Create"**
+   - Render comenzará a crear los servicios automáticamente
+
+5. **Actualiza las Variables de Entorno** (después del primer despliegue)
+   - Una vez que los servicios estén creados, ve a cada servicio y actualiza:
+   - **Frontend**: `NEXT_PUBLIC_API_BASE` → `https://conciliador-backend.onrender.com`
+   - **Backend**: `CORS_ORIGINS` → `https://conciliador-frontend.onrender.com`
+   - ⚠️ **Nota**: Los nombres de los servicios en Render pueden tener un sufijo aleatorio (ej: `conciliador-backend-abc123`). Usa la URL real que Render te asigne.
+
+6. **Espera a que se complete el despliegue**
+   - El primer despliegue puede tardar 5-10 minutos
+   - Render construirá automáticamente:
      - Base de datos PostgreSQL
-     - Backend FastAPI
-     - Frontend Next.js
+     - Backend FastAPI (desde `backend/Dockerfile`)
+     - Frontend Next.js (desde `frontend/Dockerfile`)
 
 ### Opción 2: Despliegue Manual
 
