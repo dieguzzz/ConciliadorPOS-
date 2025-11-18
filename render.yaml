@@ -30,7 +30,6 @@ services:
           name: conciliador-db
           property: port
       - key: CORS_ORIGINS
-        sync: false
         value: https://conciliador-frontend.onrender.com
     healthCheckPath: /
     autoDeploy: true
@@ -46,7 +45,6 @@ services:
     startCommand: ""
     envVars:
       - key: NEXT_PUBLIC_API_BASE
-        sync: false
         value: https://conciliador-backend.onrender.com
     healthCheckPath: /
     autoDeploy: true
