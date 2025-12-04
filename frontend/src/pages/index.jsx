@@ -51,6 +51,77 @@ export default function Home() {
     }
   };
 
+  // =================== FUNCIÓN PARA RECARGAR YAPPY ===================
+  const recargarYappy = async (file, fechaCierre) => {
+    if (!file) return;
+    
+    setYappyLoading(true);
+    const formData = new FormData();
+    formData.append("yappy", file);
+    if (fechaCierre) {
+      formData.append("fecha_cierre", fechaCierre);
+    }
+
+    try {
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/api/yappy_preview`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      console.log("📦 Respuesta Yappy del backend (recarga):", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
+      setDataYappy(json);
+    } catch (err) {
+      const errorMsg = err.message || "Error desconocido al recargar el archivo Yappy";
+      console.error("❌ Error recargando Yappy:", err);
+      setDataYappy(null);
+    } finally {
+      setYappyLoading(false);
+    }
+  };
+
+  // =================== FUNCIÓN PARA RECARGAR BANCO ===================
+  const recargarBanco = async (file, fechaCierre, sucursalCierre) => {
+    if (!file) return;
+    
+    setBancoLoading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    if (fechaCierre) {
+      formData.append("fecha_cierre", fechaCierre);
+    }
+    if (sucursalCierre) {
+      formData.append("sucursal_cierre", sucursalCierre);
+    }
+
+    try {
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/api/banco_preview`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      console.log("📦 Respuesta Banco del backend (recarga):", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
+      setDataBanco(json);
+    } catch (err) {
+      const errorMsg = err.message || "Error desconocido al recargar el archivo Banco";
+      console.error("❌ Error recargando Banco:", err);
+      setDataBanco(null);
+    } finally {
+      setBancoLoading(false);
+    }
+  };
+
   // =================== ACTUALIZAR AUTOMÁTICAMENTE AL CAMBIAR HOJA ===================
   useEffect(() => {
     // Si hay un archivo cargado y cambia la hoja, recargar automáticamente
@@ -60,6 +131,27 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hojaSeleccionada]); // Solo cuando cambia hojaSeleccionada
+
+  // =================== RECARGAR YAPPY Y BANCO CUANDO CAMBIA EL CIERRE ===================
+  useEffect(() => {
+    // Cuando se actualiza el cierre (nueva fecha/sucursal), recargar Yappy y Banco si están cargados
+    if (dataCierre?.meta?.fecha) {
+      console.log("📅 Fecha del cierre actualizada:", dataCierre.meta.fecha);
+      
+      // Recargar Yappy si hay archivo cargado
+      if (yappyFile && !yappyLoading) {
+        console.log("🔄 Recargando Yappy con nueva fecha...");
+        recargarYappy(yappyFile, dataCierre.meta.fecha);
+      }
+      
+      // Recargar Banco si hay archivo cargado
+      if (bancoFile && !bancoLoading) {
+        console.log("🔄 Recargando Banco con nueva fecha/sucursal...");
+        recargarBanco(bancoFile, dataCierre.meta.fecha, dataCierre.meta.sucursal);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataCierre?.meta?.fecha, dataCierre?.meta?.sucursal]); // Cuando cambia fecha o sucursal
 
   // =================== SUBIR CIERRE ===================
   const handleCierreUpload = async (e) => {

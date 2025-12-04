@@ -160,12 +160,14 @@ async def banco_preview(
 
         # Limpiar columnas
         df_proc["fecha"] = df_proc["fecha"].apply(limpiar_fecha)
+        print(f"📊 Fechas originales (primeras 5): {df_proc['fecha'].head(5).tolist()}")
         
         # 🔥 AJUSTAR FECHA: El banco registra transacciones al día siguiente
         # Por ejemplo: una venta del 14/11 aparece en el banco el 15/11
         # Restamos 1 día para que coincida con la fecha real de la transacción
         from datetime import timedelta
         df_proc["fecha"] = df_proc["fecha"].apply(lambda x: x - timedelta(days=1) if x else None)
+        print(f"📊 Fechas ajustadas (-1 día, primeras 5): {df_proc['fecha'].head(5).tolist()}")
         
         df_proc["monto"] = df_proc["monto"].apply(limpiar_monto)
         df_proc["tipo"] = df_proc["descripcion"].apply(detectar_tipo)
