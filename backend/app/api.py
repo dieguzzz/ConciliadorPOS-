@@ -300,10 +300,38 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
 
     if fecha_cierre_str:
         try:
+            from datetime import timedelta
             dt = datetime.strptime(fecha_cierre_str, '%d/%m/%Y')
             fecha_norm = dt.strftime("%Y-%m-%d")
-            df_yappy = df_yappy[df_yappy["fecha"] == fecha_norm]
-            print(f"✅ Filtradas {len(df_yappy)} transacciones para '{fecha_norm}'")
+            
+            # Intentar primero con la fecha exacta
+            df_filtrado = df_yappy[df_yappy["fecha"] == fecha_norm]
+            
+            # 🔥 Si no encuentra transacciones, buscar en rango de hasta 4 días
+            if len(df_filtrado) == 0:
+                print(f"⚠️ No se encontraron transacciones para {fecha_norm}")
+                print(f"   Buscando en rango de hasta 4 días...")
+                
+                fecha_inicio = dt
+                fecha_fin = dt + timedelta(days=4)
+                fecha_inicio_str = fecha_inicio.strftime("%Y-%m-%d")
+                fecha_fin_str = fecha_fin.strftime("%Y-%m-%d")
+                
+                df_filtrado = df_yappy[
+                    (df_yappy["fecha"] >= fecha_inicio_str) & 
+                    (df_yappy["fecha"] <= fecha_fin_str)
+                ]
+                
+                if len(df_filtrado) > 0:
+                    fechas_encontradas = sorted(df_filtrado["fecha"].unique())
+                    print(f"✅ Encontradas {len(df_filtrado)} transacciones en rango {fecha_inicio_str} a {fecha_fin_str}")
+                    print(f"   Fechas con transacciones: {fechas_encontradas}")
+                else:
+                    print(f"❌ No se encontraron transacciones ni en el rango de 4 días")
+            else:
+                print(f"✅ Filtradas {len(df_filtrado)} transacciones para '{fecha_norm}'")
+            
+            df_yappy = df_filtrado
         except:
             print(f"⚠️ No se pudo parsear fecha_cierre: {fecha_cierre_str}")
 

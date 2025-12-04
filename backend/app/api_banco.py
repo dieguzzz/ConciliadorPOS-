@@ -249,8 +249,32 @@ async def banco_preview(
             
             if fecha_obj:
                 antes_fecha = len(df_proc)
-                df_proc = df_proc[df_proc["fecha"] == fecha_obj]
-                print(f"✅ Filtrado por fecha {fecha_obj}: {len(df_proc)} de {antes_fecha} registros")
+                # Intentar primero con fecha exacta
+                df_filtrado = df_proc[df_proc["fecha"] == fecha_obj]
+                
+                # 🔥 Si no encuentra registros, buscar en rango de hasta 4 días
+                if len(df_filtrado) == 0:
+                    print(f"⚠️ No se encontraron registros bancarios para {fecha_obj}")
+                    print(f"   Buscando en rango de hasta 4 días...")
+                    
+                    fecha_inicio = fecha_obj
+                    fecha_fin = fecha_obj + timedelta(days=4)
+                    
+                    df_filtrado = df_proc[
+                        (df_proc["fecha"] >= fecha_inicio) & 
+                        (df_proc["fecha"] <= fecha_fin)
+                    ]
+                    
+                    if len(df_filtrado) > 0:
+                        fechas_encontradas = sorted(df_filtrado["fecha"].unique())
+                        print(f"✅ Encontrados {len(df_filtrado)} registros en rango {fecha_inicio} a {fecha_fin}")
+                        print(f"   Fechas con registros: {fechas_encontradas}")
+                    else:
+                        print(f"❌ No se encontraron registros ni en el rango de 4 días")
+                else:
+                    print(f"✅ Filtrado por fecha {fecha_obj}: {len(df_filtrado)} de {antes_fecha} registros")
+                
+                df_proc = df_filtrado
 
         # 🔥 FILTRAR POR SUCURSAL DEL CIERRE
         if sucursal_cierre:
