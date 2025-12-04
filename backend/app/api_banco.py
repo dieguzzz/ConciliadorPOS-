@@ -286,15 +286,33 @@ async def banco_preview(
 
         # 🔥 FILTRAR POR SUCURSAL DEL CIERRE
         if sucursal_cierre:
+            # Mostrar qué sucursales se detectaron ANTES de filtrar
+            sucursales_detectadas = df_proc["sucursal"].value_counts()
+            print(f"🏢 Sucursales detectadas en los registros filtrados por fecha:")
+            for suc, count in sucursales_detectadas.items():
+                print(f"   - {suc}: {count} registros")
+            
             sucursal_norm = normalizar_sucursal(sucursal_cierre)
+            print(f"🔍 Buscando sucursal normalizada: '{sucursal_norm}' (original: '{sucursal_cierre}')")
+            
             df_proc["sucursal_norm"] = df_proc["sucursal"].apply(normalizar_sucursal)
+            
+            # Mostrar sucursales normalizadas
+            sucursales_norm = df_proc["sucursal_norm"].value_counts()
+            print(f"🔍 Sucursales normalizadas:")
+            for suc, count in sucursales_norm.items():
+                print(f"   - '{suc}': {count} registros")
             
             antes_sucursal = len(df_proc)
             df_proc = df_proc[df_proc["sucursal_norm"] == sucursal_norm]
             print(f"✅ Filtrado por sucursal '{sucursal_cierre}': {len(df_proc)} de {antes_sucursal} registros")
             
             # Eliminar columna temporal
-            df_proc = df_proc.drop(columns=["sucursal_norm"])
+            if len(df_proc) > 0:
+                df_proc = df_proc.drop(columns=["sucursal_norm"])
+            else:
+                print(f"⚠️ ADVERTENCIA: No se encontraron registros para la sucursal '{sucursal_cierre}'")
+                print(f"   Sucursales disponibles: {list(sucursales_detectadas.index)}")
 
         # Limpiar duplicados y resetear índice
         df_proc = df_proc.drop_duplicates().reset_index(drop=True)
