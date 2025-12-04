@@ -163,10 +163,12 @@ def parse_yappy_transacciones(file_path: str):
 
 def conciliar_yappy(cierre_path: str, yappy_path: str):
     """Compara las transacciones del cierre con las del archivo Yappy"""
+    from datetime import timedelta
+    
     fecha_cierre, cierre_yappy = parse_yappy_cierre(cierre_path)
     df_yappy = parse_yappy_transacciones(yappy_path)
 
-    # 🔥 FIX: Si la fecha puede estar confundida (día/mes intercambiados)
+    # 🔥 FIX 1: Si la fecha puede estar confundida (día/mes intercambiados)
     # Intentar con ambas versiones y usar la que tenga más coincidencias
     df_filtrado = df_yappy[df_yappy["fecha"] == fecha_cierre]
     
@@ -183,6 +185,27 @@ def conciliar_yappy(cierre_path: str, yappy_path: str):
                 fecha_cierre = fecha_alternativa
         except:
             pass
+    
+    # 🔥 FIX 2: Si aún no hay transacciones, buscar en rango de hasta 4 días
+    # Los Yappy pueden llegar con retraso de varios días
+    if len(df_filtrado) == 0:
+        print(f"⚠️ No se encontraron transacciones para {fecha_cierre}")
+        print(f"   Buscando en rango de hasta 4 días después...")
+        
+        fecha_inicio = fecha_cierre
+        fecha_fin = fecha_cierre + timedelta(days=4)
+        
+        df_filtrado = df_yappy[
+            (df_yappy["fecha"] >= fecha_inicio) & 
+            (df_yappy["fecha"] <= fecha_fin)
+        ]
+        
+        if len(df_filtrado) > 0:
+            fechas_encontradas = df_filtrado["fecha"].unique()
+            print(f"✅ Encontradas {len(df_filtrado)} transacciones en el rango {fecha_inicio} a {fecha_fin}")
+            print(f"   Fechas con transacciones: {sorted(fechas_encontradas)}")
+        else:
+            print(f"❌ No se encontraron transacciones ni en el rango de 4 días")
 
     comparacion = []
     for linea in cierre_yappy:
@@ -211,9 +234,19 @@ def conciliar_yappy(cierre_path: str, yappy_path: str):
             "estado": estado
         })
 
+    # Determinar rango de fechas usado
+    fechas_usadas = sorted(df_filtrado["fecha"].unique()) if len(df_filtrado) > 0 else []
+    fecha_min = str(min(fechas_usadas)) if fechas_usadas else str(fecha_cierre)
+    fecha_max = str(max(fechas_usadas)) if fechas_usadas else str(fecha_cierre)
+    
     # Armar salida
     return {
         "fecha": str(fecha_cierre),
+        "fecha_rango": {
+            "inicio": fecha_min,
+            "fin": fecha_max,
+            "dias": len(fechas_usadas)
+        } if len(fechas_usadas) > 1 else None,
         "yappy_cierre": cierre_yappy,
         "yappy_app": df_filtrado.to_dict(orient="records"),
         "comparacion": comparacion,
