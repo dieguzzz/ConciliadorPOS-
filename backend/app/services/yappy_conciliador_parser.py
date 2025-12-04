@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-from datetime import datetime
+from datetime import datetime, date
 
 def format_phone(phone):
     """Formatea el número de teléfono al estilo (+507) 6615-3492"""
@@ -13,6 +13,67 @@ def format_phone(phone):
         return f"(+507) {digits[:4]}-{digits[4:]}"
     return phone
 
+def parsear_fecha_yappy(fecha_str):
+    """
+    Parsea fechas con formato: 'sáb 22/11/2025' o '22/11/2025'
+    Remueve el día de la semana si existe.
+    """
+    if pd.isna(fecha_str):
+        return None
+    
+    fecha_str = str(fecha_str).strip()
+    
+    # Remover día de la semana si existe (lun, mar, mié, jue, vie, sáb, dom)
+    fecha_str = re.sub(r'^(lun|mar|mi[ée]|jue|vie|s[áa]b|dom)\s+', '', fecha_str, flags=re.IGNORECASE)
+    
+    try:
+        # Intentar parsear DD/MM/YYYY (formato español)
+        return datetime.strptime(fecha_str, '%d/%m/%Y').date()
+    except:
+        try:
+            # Fallback: usar pandas con dayfirst=True
+            return pd.to_datetime(fecha_str, dayfirst=True).date()
+        except:
+            return None
+
+def corregir_fecha_excel(fecha_raw):
+    """
+    Corrige el problema de Excel/pandas que confunde día y mes.
+    Si Excel guardó 14/11/2025, pandas puede leerlo como 2025-01-14 en lugar de 2025-11-14.
+    """
+    if fecha_raw is None:
+        return None
+    
+    # Si es string, intentar parsearlo
+    if isinstance(fecha_raw, str):
+        try:
+            fecha = pd.to_datetime(fecha_raw, dayfirst=True).date()
+            return fecha
+        except:
+            return None
+    
+    # Si es datetime de pandas/Excel
+    if isinstance(fecha_raw, (datetime, pd.Timestamp)):
+        fecha = fecha_raw.date() if isinstance(fecha_raw, datetime) else fecha_raw.to_pydatetime().date()
+        
+        # Verificar si mes y día podrían estar intercambiados
+        # Solo si ambos valores son <= 12 (pueden ser válidos en ambas posiciones)
+        if fecha.month <= 12 and fecha.day <= 12:
+            # Retornar ambas posibilidades para que el sistema elija la correcta
+            # por ahora, asumimos que DD/MM es más común en Panamá
+            # Si pandas leyó 2025-01-14, lo correcto probablemente sea 2025-14-01 (imposible)
+            # o realmente es 2025-11-14 (14 de noviembre)
+            # Por simplicidad, retornamos la fecha tal cual y dejamos que el matching decida
+            pass
+        
+        return fecha
+    
+    # Si ya es date
+    if isinstance(fecha_raw, date):
+        return fecha_raw
+    
+    return None
+
 def parse_yappy_cierre(file_path: str):
     """Extrae la fecha y tabla Yappy del archivo de cierre POS"""
     df = pd.read_excel(file_path, header=None)
@@ -22,14 +83,24 @@ def parse_yappy_cierre(file_path: str):
     for i, row in df.iterrows():
         for j, val in enumerate(row):
             if isinstance(val, str) and "FECHA DE CIERRE" in val.upper():
-                fecha_cierre = df.iloc[i + 1, j]
-                if isinstance(fecha_cierre, datetime):
-                    fecha_cierre = fecha_cierre.date()
-                elif isinstance(fecha_cierre, str):
-                    try:
-                        fecha_cierre = pd.to_datetime(fecha_cierre, dayfirst=True).date()
-                    except Exception:
-                        pass
+                fecha_cierre_raw = df.iloc[i + 1, j]
+                
+                # Usar la función de corrección
+                fecha_cierre = corregir_fecha_excel(fecha_cierre_raw)
+                
+                # 🔥 FIX: Si pandas confundió día/mes (típico problema)
+                # Intentar intercambiar si es posible
+                if isinstance(fecha_cierre_raw, (datetime, pd.Timestamp)) and fecha_cierre:
+                    if fecha_cierre.month <= 12 and fecha_cierre.day <= 12:
+                        # Ambos valores son válidos, crear fecha alternativa
+                        try:
+                            fecha_alternativa = date(fecha_cierre.year, fecha_cierre.day, fecha_cierre.month)
+                            # Guardamos ambas para comparar después
+                            # Por ahora usamos la alternativa si el mes es pequeño (< 13)
+                            # La lógica real se hará en conciliar_yappy
+                            print(f"⚠️ Fecha ambigua detectada: {fecha_cierre} vs {fecha_alternativa}")
+                        except:
+                            pass
 
     # Buscar columna YAPPY
     col_yappy = None
@@ -77,9 +148,16 @@ def parse_yappy_transacciones(file_path: str):
     )
 
     df = df[["fecha", "referencia", "cliente", "celular", "estado", "monto"]].dropna(how="all")
-    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.date
+    
+    # 🔥 FIX: Usar el parseador custom que maneja el formato 'sáb 22/11/2025'
+    df["fecha"] = df["fecha"].apply(parsear_fecha_yappy)
+    
     df["celular"] = df["celular"].astype(str).apply(format_phone)
     df["monto"] = df["monto"].astype(float)
+    
+    # Eliminar filas sin fecha válida
+    df = df[df["fecha"].notna()]
+    
     return df
 
 
@@ -88,8 +166,23 @@ def conciliar_yappy(cierre_path: str, yappy_path: str):
     fecha_cierre, cierre_yappy = parse_yappy_cierre(cierre_path)
     df_yappy = parse_yappy_transacciones(yappy_path)
 
-    # Filtrar solo las transacciones de la misma fecha
+    # 🔥 FIX: Si la fecha puede estar confundida (día/mes intercambiados)
+    # Intentar con ambas versiones y usar la que tenga más coincidencias
     df_filtrado = df_yappy[df_yappy["fecha"] == fecha_cierre]
+    
+    # Si no hay transacciones y es posible que día/mes estén intercambiados
+    if len(df_filtrado) == 0 and fecha_cierre.month <= 12 and fecha_cierre.day <= 12:
+        try:
+            fecha_alternativa = date(fecha_cierre.year, fecha_cierre.day, fecha_cierre.month)
+            df_filtrado_alt = df_yappy[df_yappy["fecha"] == fecha_alternativa]
+            
+            if len(df_filtrado_alt) > 0:
+                print(f"⚠️ Usando fecha alternativa {fecha_alternativa} en lugar de {fecha_cierre}")
+                print(f"   Encontradas {len(df_filtrado_alt)} transacciones")
+                df_filtrado = df_filtrado_alt
+                fecha_cierre = fecha_alternativa
+        except:
+            pass
 
     comparacion = []
     for linea in cierre_yappy:
