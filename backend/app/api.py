@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import io, traceback, re
 import tempfile
+from app.utils.file_reader import read_file, get_excel_sheets, detect_file_type
 
 router = APIRouter()
 
@@ -206,28 +207,75 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame):
 # ========= PARSER YAPPY =========
 
 def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
-    """Parser específico para Yappy de Black Dog."""
-    cols = {"fecha": 1, "referencia": 6, "cliente": 9, "celular": 12, "estado": 14, "total": 22}
+    """Parser específico para Yappy de Black Dog. Soporta Excel y CSV."""
+    # Detectar si es CSV (primera fila tiene encabezados) o Excel (buscar fila de encabezados)
+    first_row_str = " ".join(str(x).strip().upper() for x in df_raw.iloc[0] if pd.notna(x))
+    is_csv_format = "FECHA" in first_row_str and "REFERENCIA" in first_row_str
+    
+    if is_csv_format:
+        # CSV: primera fila son los encabezados
+        print("📄 Detectado formato CSV - usando encabezados de la primera fila")
+        df_data = df_raw.iloc[1:].reset_index(drop=True)  # Saltar primera fila (encabezados)
+        
+        # Mapear columnas por nombre (normalizado)
+        header_row = df_raw.iloc[0].astype(str).str.strip().str.upper()
+        col_map = {}
+        
+        # Buscar columnas por nombre (flexible)
+        for idx, header in enumerate(header_row):
+            header_upper = str(header).upper()
+            if "FECHA" in header_upper and "fecha" not in col_map:
+                col_map["fecha"] = idx
+            elif "REFERENCIA" in header_upper and "referencia" not in col_map:
+                col_map["referencia"] = idx
+            elif ("NOMBRE" in header_upper and "CLIENTE" in header_upper) or ("CLIENTE" in header_upper and "cliente" not in col_map):
+                col_map["cliente"] = idx
+            elif "CELULAR" in header_upper and "celular" not in col_map:
+                col_map["celular"] = idx
+            elif "ESTADO" in header_upper and "estado" not in col_map:
+                col_map["estado"] = idx
+            elif "TOTAL" in header_upper and "total" not in col_map and "SUB-TOTAL" not in header_upper:
+                col_map["total"] = idx
+        
+        # Validar que encontramos todas las columnas necesarias
+        required_cols = ["fecha", "referencia", "cliente", "celular", "estado", "total"]
+        missing = [c for c in required_cols if c not in col_map]
+        if missing:
+            raise ValueError(f"❌ No se encontraron las columnas requeridas: {missing}. Columnas encontradas: {list(col_map.keys())}")
+        
+        print(f"✅ Columnas mapeadas: {col_map}")
+        df_yappy = pd.DataFrame({
+            "fecha": df_data.iloc[:, col_map["fecha"]],
+            "referencia": df_data.iloc[:, col_map["referencia"]],
+            "cliente": df_data.iloc[:, col_map["cliente"]],
+            "celular": df_data.iloc[:, col_map["celular"]],
+            "estado": df_data.iloc[:, col_map["estado"]],
+            "total": df_data.iloc[:, col_map["total"]],
+        })
+    else:
+        # Excel: buscar fila de encabezados
+        print("📄 Detectado formato Excel - buscando fila de encabezados")
+        cols = {"fecha": 1, "referencia": 6, "cliente": 9, "celular": 12, "estado": 14, "total": 22}
 
-    start_row = None
-    for i, row in df_raw.iterrows():
-        row_str = " ".join(str(x).strip().upper() for x in row if pd.notna(x))
-        if "FECHA" in row_str and "REFERENCIA" in row_str:
-            start_row = i + 1
-            break
+        start_row = None
+        for i, row in df_raw.iterrows():
+            row_str = " ".join(str(x).strip().upper() for x in row if pd.notna(x))
+            if "FECHA" in row_str and "REFERENCIA" in row_str:
+                start_row = i + 1
+                break
 
-    if start_row is None:
-        raise ValueError("❌ No se encontró la fila de encabezados en Yappy")
+        if start_row is None:
+            raise ValueError("❌ No se encontró la fila de encabezados en Yappy")
 
-    df_data = df_raw.iloc[start_row:].reset_index(drop=True)
-    df_yappy = pd.DataFrame({
-        "fecha": df_data.iloc[:, cols["fecha"]],
-        "referencia": df_data.iloc[:, cols["referencia"]],
-        "cliente": df_data.iloc[:, cols["cliente"]],
-        "celular": df_data.iloc[:, cols["celular"]],
-        "estado": df_data.iloc[:, cols["estado"]],
-        "total": df_data.iloc[:, cols["total"]],
-    })
+        df_data = df_raw.iloc[start_row:].reset_index(drop=True)
+        df_yappy = pd.DataFrame({
+            "fecha": df_data.iloc[:, cols["fecha"]],
+            "referencia": df_data.iloc[:, cols["referencia"]],
+            "cliente": df_data.iloc[:, cols["cliente"]],
+            "celular": df_data.iloc[:, cols["celular"]],
+            "estado": df_data.iloc[:, cols["estado"]],
+            "total": df_data.iloc[:, cols["total"]],
+        })
 
     def clean_fecha(v):
         if pd.isna(v): return None
@@ -270,41 +318,57 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
     try:
         contents = await cierre.read()
         cierre.file.seek(0)
-        xls = pd.ExcelFile(io.BytesIO(contents))
-
-        # === Selección de hoja ===
-        if hoja_cierre:
-            # Si es un número, convertir a índice
-            if str(hoja_cierre).isdigit():
-                idx = int(hoja_cierre) - 1  # Convertir de 1-based a 0-based
-                idx = max(0, min(idx, len(xls.sheet_names) - 1))
-                target = xls.sheet_names[idx]
-                print(f"📄 Seleccionando hoja por índice: {hoja_cierre} → '{target}' (índice {idx})")
+        filename = cierre.filename or "archivo.xlsx"
+        file_type = detect_file_type(filename)
+        
+        # === Selección de hoja (solo para Excel/ODS, no CSV) ===
+        target = None
+        available_sheets = []
+        
+        if file_type.startswith('excel') or file_type == 'ods':
+            available_sheets = get_excel_sheets(contents, filename)
+            
+            if hoja_cierre:
+                # Si es un número, convertir a índice
+                if str(hoja_cierre).isdigit():
+                    idx = int(hoja_cierre) - 1  # Convertir de 1-based a 0-based
+                    idx = max(0, min(idx, len(available_sheets) - 1))
+                    target = available_sheets[idx]
+                    print(f"📄 Seleccionando hoja por índice: {hoja_cierre} → '{target}' (índice {idx})")
+                else:
+                    target = hoja_cierre
+                    print(f"📄 Seleccionando hoja por nombre: '{target}'")
             else:
-                target = hoja_cierre
-                print(f"📄 Seleccionando hoja por nombre: '{target}'")
+                # Buscar la primera hoja no vacía
+                for sheet_name in available_sheets:
+                    try:
+                        test_df = read_file(contents, filename, sheet_name=sheet_name, header=None)
+                        if test_df.dropna(how="all").shape[0] > 0:
+                            target = sheet_name
+                            break
+                    except:
+                        continue
+                if not target and available_sheets:
+                    target = available_sheets[0]
+                print(f"📄 Auto-seleccionando primera hoja no vacía: '{target}'")
         else:
-            # Buscar la primera hoja no vacía
-            target = next(
-                (n for n in xls.sheet_names if xls.parse(n).dropna(how="all").shape[0] > 0),
-                xls.sheet_names[0]
-            )
-            print(f"📄 Auto-seleccionando primera hoja no vacía: '{target}'")
+            # Para CSV, no hay hojas
+            print(f"📄 Archivo CSV, no se requiere selección de hoja")
 
-        # === Leer hoja seleccionada SIN dtype=str para detectar fechas ===
-        df_raw = pd.read_excel(io.BytesIO(contents), sheet_name=target, header=None)
+        # === Leer archivo ===
+        df_raw = read_file(contents, filename, sheet_name=target, header=None)
         
         print(f"📊 Forma del DataFrame: {df_raw.shape}")
-        print(f"📋 Hojas disponibles: {xls.sheet_names}")
+        print(f"📋 Hojas disponibles: {available_sheets}")
         
         parsed = parse_cierre_blackdog_posicional(df_raw)
         
         if not parsed:
             return {
                 "error": "No se detectó el layout de Cierre Black Dog.",
-                "sheet": str(target),
+                "sheet": str(target) if target else "N/A",
                 "shape": df_raw.shape,
-                "available_sheets": xls.sheet_names,
+                "available_sheets": available_sheets,
                 "preview": df_raw.head(30).fillna("").astype(str).to_dict(orient="split")
             }
 
@@ -326,8 +390,8 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
             df_tabla["fecha"] = df_tabla["fecha"].astype(str)
 
         salida = {
-            "sheet": str(target),
-            "available_sheets": xls.sheet_names,
+            "sheet": str(target) if target else "N/A",
+            "available_sheets": available_sheets,
             "meta": {
                 "fecha": fecha_original,  # 🔥 NO LIMPIAR LA FECHA
                 "sucursal": parsed.get("meta", {}).get("sucursal"),
@@ -345,11 +409,21 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
         
         return salida
 
+    except ValueError as e:
+        # Errores de formato de archivo
+        error_msg = f"Error en el formato del archivo: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg, "type": "format_error"}
     except Exception as e:
         tb = traceback.format_exc()
-        print(f"❌ Error en cierre_preview: {e}")
+        error_msg = f"Error procesando archivo de cierre: {str(e)}"
+        print(f"❌ {error_msg}")
         print(tb)
-        return {"error": str(e), "trace": tb}
+        return {
+            "error": error_msg,
+            "type": "processing_error",
+            "trace": tb if "trace" in str(e).lower() else None
+        }
 
 
 @router.post("/yappy_preview")
@@ -359,7 +433,10 @@ async def yappy_preview(yappy: UploadFile = File(...), fecha_cierre: str = Form(
         print(f"📅 Fecha del cierre recibida: {fecha_cierre}")
         
         content = await yappy.read()
-        df_raw = pd.read_excel(BytesIO(content), sheet_name=0, header=None)
+        filename = yappy.filename or "archivo.xlsx"
+        # Para Yappy, leer la primera hoja (índice 0) o sin hoja si es CSV
+        sheet_name = 0 if detect_file_type(filename) == 'excel' else None
+        df_raw = read_file(content, filename, sheet_name=sheet_name, header=None)
         
         print(f"📊 Shape del Excel Yappy: {df_raw.shape}")
         
@@ -373,8 +450,17 @@ async def yappy_preview(yappy: UploadFile = File(...), fecha_cierre: str = Form(
             "preview": preview_data, 
             "total_rows": len(preview_data)
         }
+    except ValueError as e:
+        error_msg = f"Error en el formato del archivo Yappy: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg, "type": "format_error"}
     except Exception as e:
         tb = traceback.format_exc()
-        print(f"❌ Error en yappy_preview: {e}")
+        error_msg = f"Error procesando archivo Yappy: {str(e)}"
+        print(f"❌ {error_msg}")
         print(tb)
-        return {"error": str(e), "trace": tb}
+        return {
+            "error": error_msg,
+            "type": "processing_error",
+            "trace": tb if "trace" in str(e).lower() else None
+        }

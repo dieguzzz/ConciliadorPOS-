@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import axios from "axios";
+import { getApiBase } from "../utils/api";
 
 interface Movimiento {
   fecha: string;
@@ -40,7 +41,7 @@ const ConciliacionBanco: React.FC<ConciliacionBancoProps> = ({ apiUrl }) => {
 
     try {
       const response = await axios.post(
-        `${apiUrl || process.env.NEXT_PUBLIC_API_URL}/api/banco_preview`,
+        `${apiUrl || getApiBase()}/api/banco_preview`,
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
@@ -67,7 +68,7 @@ const ConciliacionBanco: React.FC<ConciliacionBancoProps> = ({ apiUrl }) => {
       <div className="bg-gray-800 p-4 rounded-lg shadow-md mb-6">
         <input
           type="file"
-          accept=".xlsx"
+          accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods"
           onChange={handleFileChange}
           className="mb-3 text-sm"
         />

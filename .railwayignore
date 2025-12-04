@@ -1,0 +1,10 @@
+# Archivos que Railway debe ignorar
+node_modules/
+__pycache__/
+*.pyc
+.git/
+.env
+.DS_Store
+*.log
+.next/
+

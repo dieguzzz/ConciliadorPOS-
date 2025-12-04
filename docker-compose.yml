@@ -1,32 +1,33 @@
 services:
-  db:
-    image: postgres:15
-    container_name: conciliador_db
-    restart: always
-    environment:
-      POSTGRES_USER: conciliador_user
-      POSTGRES_PASSWORD: conciliador_pass
-      POSTGRES_DB: conciliador_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - pgdata:/var/lib/postgresql/data
+  # db:  # Comentado - no se usa PostgreSQL actualmente
+  #   image: postgres:15
+  #   container_name: conciliador_db
+  #   restart: always
+  #   environment:
+  #     POSTGRES_USER: conciliador_user
+  #     POSTGRES_PASSWORD: conciliador_pass
+  #     POSTGRES_DB: conciliador_db
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+  #     - pgdata:/var/lib/postgresql/data
 
   backend:
     build: ./backend
     container_name: conciliador_backend
     restart: always
-    depends_on:
-      - db
+    # depends_on:  # Eliminado - no depende de db
+    #   - db
     environment:
-      - POSTGRES_USER=conciliador_user
-      - POSTGRES_PASSWORD=conciliador_pass
-      - POSTGRES_DB=conciliador_db
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
+      # Variables de PostgreSQL comentadas - no se usan actualmente
+      # - POSTGRES_USER=conciliador_user
+      # - POSTGRES_PASSWORD=conciliador_pass
+      # - POSTGRES_DB=conciliador_db
+      # - POSTGRES_HOST=db
+      # - POSTGRES_PORT=5432
       - BACKEND_DATA_DIR=/app/app/data
-      - CORS_ORIGINS=http://localhost:3000
+      - CORS_ORIGINS=*
     ports:
       - "8000:8000"
     volumes:
@@ -46,5 +47,5 @@ services:
     volumes:
       - ./frontend/src:/app/src
 
-volumes:
-  pgdata:
+# volumes:  # Comentado - no se necesita sin PostgreSQL
+#   pgdata:

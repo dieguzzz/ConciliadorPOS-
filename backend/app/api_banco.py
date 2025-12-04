@@ -6,37 +6,25 @@ import re
 import traceback
 from datetime import datetime
 from pathlib import Path
+from app.utils.file_reader import read_file, detect_file_type
+from app.utils.validators import clean_amount, clean_date, validate_dataframe, normalize_text
 
 router = APIRouter()
 
 # --- Funciones auxiliares ---
 
-def limpiar_monto(valor):
-    """Convierte montos tipo 'B/. 59.95', '$59,95', '(59.95)' en float."""
-    if pd.isna(valor):
-        return None
-    if isinstance(valor, (int, float)):
-        return float(valor)
-    val = str(valor).strip()
-    val = val.replace("B/.", "").replace("B/ ", "").replace("$", "").replace(",", ".")
-    val = re.sub(r"[^0-9.\-]", "", val)
-    try:
-        return abs(float(val))
-    except:
-        return None
-
+# Usar funciones de validación centralizadas
+limpiar_monto = clean_amount
 
 def limpiar_fecha(valor):
-    """Intenta convertir fechas a formato datetime.date."""
-    if pd.isna(valor):
-        return None
-    try:
-        return pd.to_datetime(valor, dayfirst=True).date()
-    except Exception:
+    """Convierte fecha a date object."""
+    fecha_str = clean_date(valor)
+    if fecha_str:
         try:
-            return datetime.strptime(str(valor), "%d/%m/%Y").date()
-        except Exception:
+            return datetime.strptime(fecha_str, "%d/%m/%Y").date()
+        except:
             return None
+    return None
 
 
 def detectar_tipo(descripcion):
@@ -65,11 +53,8 @@ def extraer_codigo(descripcion):
 
 
 # 🔥 Normalizar nombre de sucursal
-def normalizar_sucursal(nombre):
-    """Normaliza el nombre de la sucursal para comparación."""
-    if not nombre:
-        return ""
-    return str(nombre).strip().upper().replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
+# Usar función de validación centralizada
+normalizar_sucursal = normalize_text
 
 
 # --- Endpoint principal ---
@@ -88,21 +73,23 @@ async def banco_preview(
         print(f"📅 Fecha del cierre: {fecha_cierre}")
         print(f"🏢 Sucursal del cierre: {sucursal_cierre}")
 
-        # Leer contenido del Excel subido
+        # Leer contenido del archivo subido
         content = await file.read()
         if not content:
             raise HTTPException(status_code=400, detail="Archivo vacío o no recibido.")
 
-        # Leer hoja principal con encabezados en la fila 7
-        df = pd.read_excel(io.BytesIO(content), header=6, engine="openpyxl")
+        filename = file.filename or "archivo.xlsx"
+        # Leer archivo con encabezados en la fila 7 (índice 6)
+        df = read_file(content, filename, header=6)
 
         # Normalizar nombres de columnas (por si varían en tildes o mayúsculas)
         df.columns = [str(c).strip().lower() for c in df.columns]
 
         # Verificar columnas mínimas necesarias
         required_cols = ["fecha", "descripción", "crédito"]
-        if not all(any(rc in c for c in df.columns) for rc in required_cols):
-            raise HTTPException(status_code=400, detail="No se encontraron las columnas requeridas: Fecha, Descripción, Crédito")
+        is_valid, error_msg = validate_dataframe(df, required_cols, min_rows=1)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg or "El archivo no tiene el formato esperado")
 
         # Extraer columnas relevantes
         col_fecha = next(c for c in df.columns if "fecha" in c)
@@ -125,9 +112,19 @@ async def banco_preview(
         df_proc = df_proc[df_proc["codigo"].astype(str).str.match(r"^\d{9}$")]
 
         # Eliminar filas vacías o sin monto
-        df_proc = df_proc[df_proc["monto"].notna()]
-        df_proc = df_proc[df_proc["fecha"].notna()]
-        df_proc = df_proc[df_proc["descripcion"].notna()]
+        antes_filtrado = len(df_proc)
+        df_proc = df_proc[
+            df_proc["monto"].notna() & 
+            df_proc["fecha"].notna() & 
+            df_proc["descripcion"].notna()
+        ]
+        print(f"📊 Filas después de limpieza: {len(df_proc)} de {antes_filtrado}")
+        
+        if df_proc.empty:
+            raise HTTPException(
+                status_code=400, 
+                detail="No se encontraron registros válidos después de la limpieza. Verifica que el archivo tenga datos en las columnas Fecha, Descripción y Crédito."
+            )
 
         print(f"📊 Total registros después de limpieza: {len(df_proc)}")
 
@@ -223,6 +220,18 @@ async def banco_preview(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # Errores de formato o validación
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Error en el formato del archivo: {str(e)}"
+        )
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error procesando archivo bancario: {e}")
+        error_msg = f"Error procesando archivo bancario: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise HTTPException(
+            status_code=500, 
+            detail=error_msg
+        )

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
-
-console.log("🔗 API BASE URL:", process.env.NEXT_PUBLIC_API_BASE);
+import { getApiBase } from "../utils/api";
 
 
 export default function ConciliacionPage() {
@@ -20,7 +19,7 @@ export default function ConciliacionPage() {
     formData.append("yappy", yappy);
     setLoading(true);
     try {
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_BASE}/conciliar_auto`, formData);
+      const res = await axios.post(`${getApiBase()}/conciliar_auto`, formData);
       setData(res.data);
     } catch (err) {
       alert("Error al conciliar. Revisa la consola.");
@@ -37,7 +36,7 @@ export default function ConciliacionPage() {
     formData.append("banco", banco);
     formData.append("yappy", yappy);
     const res = await axios.post<Blob>(
-    `${process.env.NEXT_PUBLIC_API_BASE}/conciliar_exportar`,
+    `${getApiBase()}/conciliar_exportar`,
     formData,
     { responseType: "blob" }
     );

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getApiBase } from "../utils/api";
 
 export default function PreviewCierre() {
   const [data, setData] = useState(null);
@@ -15,7 +16,7 @@ export default function PreviewCierre() {
     formData.append("cierre", file);
     formData.append("hoja_cierre", hoja);
 
-    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+    const apiBase = getApiBase();
     const res = await fetch(`${apiBase}/api/cierre_preview`, {
       method: "POST",
       body: formData,
@@ -42,7 +43,7 @@ export default function PreviewCierre() {
         <label className="block text-gray-600 font-medium mb-2">Archivo de Cierre</label>
         <input
           type="file"
-          accept=".xlsx,.xls"
+          accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods"
           className="block w-full mb-3"
           onChange={(e) => setFile(e.target.files[0])}
         />

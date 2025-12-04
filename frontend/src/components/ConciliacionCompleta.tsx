@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getApiBase } from "../utils/api";
 
 export default function ConciliacionCompleta() {
   const [files, setFiles] = useState({
@@ -29,7 +30,7 @@ export default function ConciliacionCompleta() {
     formData.append("banco", files.banco);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/conciliar_auto`, {
         method: "POST",
         body: formData,
@@ -99,7 +100,7 @@ export default function ConciliacionCompleta() {
             </h4>
             <input
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods"
               onChange={(e) => handleChange(key, e.target.files?.[0] || null)}
               style={{
                 display: "block",

@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import ConciliacionYappy from "../components/ConciliacionYappy";
 import BancoPreview from "../components/banco_preview";
+import { getApiBase } from "../utils/api";
 
 export default function Home() {
   const [cierreFile, setCierreFile] = useState(null);
@@ -17,6 +18,49 @@ export default function Home() {
 
   const [hojaSeleccionada, setHojaSeleccionada] = useState("11");
 
+  // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
+  const recargarCierre = async (file) => {
+    if (!file) return;
+    
+    setCierreLoading(true);
+    const formData = new FormData();
+    formData.append("cierre", file);
+    formData.append("hoja_cierre", hojaSeleccionada);
+
+    try {
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/api/cierre_preview`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      console.log("📦 Respuesta Cierre del backend (recarga):", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
+      setDataCierre(json);
+    } catch (err) {
+      const errorMsg = err.message || "Error desconocido al recargar el archivo de cierre";
+      console.error("❌ Error recargando Cierre:", err);
+      // No mostrar alert en recarga automática para no interrumpir
+      setDataCierre(null);
+    } finally {
+      setCierreLoading(false);
+    }
+  };
+
+  // =================== ACTUALIZAR AUTOMÁTICAMENTE AL CAMBIAR HOJA ===================
+  useEffect(() => {
+    // Si hay un archivo cargado y cambia la hoja, recargar automáticamente
+    if (cierreFile && dataCierre && !cierreLoading) {
+      console.log("🔄 Hoja cambiada a", hojaSeleccionada, ", recargando cierre...");
+      recargarCierre(cierreFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hojaSeleccionada]); // Solo cuando cambia hojaSeleccionada
+
   // =================== SUBIR CIERRE ===================
   const handleCierreUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -30,17 +74,24 @@ export default function Home() {
     formData.append("hoja_cierre", hojaSeleccionada);
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/cierre_preview`, {
         method: "POST",
         body: formData,
       });
       const json = await res.json();
       console.log("📦 Respuesta Cierre del backend:", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
       setDataCierre(json);
     } catch (err) {
-      alert("Error procesando archivo Cierre: " + err.message);
+      const errorMsg = err.message || "Error desconocido al procesar el archivo de cierre";
+      alert(`Error procesando archivo Cierre:\n${errorMsg}`);
       console.error("❌ Error cargando Cierre:", err);
+      setDataCierre(null);
     } finally {
       setCierreLoading(false);
     }
@@ -64,17 +115,24 @@ export default function Home() {
     }
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/yappy_preview`, {
         method: "POST",
         body: formData,
       });
       const json = await res.json();
       console.log("📦 Respuesta Yappy del backend:", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
       setDataYappy(json);
     } catch (err) {
-      alert("Error procesando archivo Yappy: " + err.message);
+      const errorMsg = err.message || "Error desconocido al procesar el archivo Yappy";
+      alert(`Error procesando archivo Yappy:\n${errorMsg}`);
       console.error("❌ Error cargando Yappy:", err);
+      setDataYappy(null);
     } finally {
       setYappyLoading(false);
     }
@@ -102,17 +160,24 @@ export default function Home() {
     }
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+      const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/api/banco_preview`, {
         method: "POST",
         body: formData,
       });
       const json = await res.json();
       console.log("📦 Respuesta Banco del backend:", json);
+      
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      
       setDataBanco(json);
     } catch (err) {
-      alert("Error procesando archivo Banco: " + err.message);
+      const errorMsg = err.message || "Error desconocido al procesar el archivo bancario";
+      alert(`Error procesando archivo Banco:\n${errorMsg}`);
       console.error("❌ Error cargando Banco:", err);
+      setDataBanco(null);
     } finally {
       setBancoLoading(false);
     }
@@ -150,7 +215,7 @@ export default function Home() {
               {cierreFile ? cierreFile.name : "Seleccionar archivo"}
               <input 
                 type="file" 
-                accept=".xlsx,.xls" 
+                accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
                 onChange={handleCierreUpload} 
                 style={{ display: "none" }}
               />
@@ -171,7 +236,7 @@ export default function Home() {
             {yappyFile ? yappyFile.name : "Seleccionar archivo"}
             <input 
               type="file" 
-              accept=".xlsx,.xls" 
+              accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
               onChange={handleYappyUpload} 
               style={{ display: "none" }}
             />
@@ -191,7 +256,7 @@ export default function Home() {
             {bancoFile ? bancoFile.name : "Seleccionar archivo"}
             <input 
               type="file" 
-              accept=".xlsx,.xls" 
+              accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
               onChange={handleBancoUpload} 
               style={{ display: "none" }}
             />

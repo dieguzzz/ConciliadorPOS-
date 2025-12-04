@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 import pandas as pd
 import io
 import traceback
+from app.utils.file_reader import read_file
 
 router = APIRouter()
 
@@ -28,7 +29,8 @@ async def conciliar_auto(
     try:
         # --- Leer Cierre POS ---
         cierre_bytes = await cierre.read()
-        df_cierre = pd.read_excel(io.BytesIO(cierre_bytes), engine="openpyxl")
+        cierre_filename = cierre.filename or "cierre.xlsx"
+        df_cierre = read_file(cierre_bytes, cierre_filename)
         df_cierre.columns = [str(c).strip().lower() for c in df_cierre.columns]
         if "monto" not in df_cierre.columns or "fecha" not in df_cierre.columns:
             raise HTTPException(status_code=400, detail="Archivo de cierre no válido.")
@@ -37,7 +39,8 @@ async def conciliar_auto(
 
         # --- Leer Yappy ---
         yappy_bytes = await yappy.read()
-        df_yappy = pd.read_excel(io.BytesIO(yappy_bytes), header=11, engine="openpyxl")
+        yappy_filename = yappy.filename or "yappy.xlsx"
+        df_yappy = read_file(yappy_bytes, yappy_filename, header=11)
         df_yappy.columns = [str(c).strip().lower() for c in df_yappy.columns]
         col_fecha = next(c for c in df_yappy.columns if "fecha" in c)
         col_total = next(c for c in df_yappy.columns if "total" in c or "monto" in c)
@@ -49,7 +52,8 @@ async def conciliar_auto(
 
         # --- Leer Banco ---
         banco_bytes = await banco.read()
-        df_banco = pd.read_excel(io.BytesIO(banco_bytes), header=6, engine="openpyxl")
+        banco_filename = banco.filename or "banco.xlsx"
+        df_banco = read_file(banco_bytes, banco_filename, header=6)
         df_banco.columns = [str(c).strip().lower() for c in df_banco.columns]
         col_fecha = next(c for c in df_banco.columns if "fecha" in c)
         col_desc = next(c for c in df_banco.columns if "desc" in c)
@@ -101,6 +105,14 @@ async def conciliar_auto(
             "preview": df_conc.head(50).to_dict(orient="records")
         }
 
+    except ValueError as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error en el formato de los archivos: {str(e)}"
+        )
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error conciliando: {e}")
+        error_msg = f"Error durante la conciliación: {str(e)}"
+        print(f"❌ {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)

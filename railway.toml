@@ -1,0 +1,9 @@
+# Railway Configuration File
+# Este archivo ayuda a Railway a entender cómo desplegar tu proyecto
+
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "echo 'Railway desplegará cada servicio individualmente'"
+
