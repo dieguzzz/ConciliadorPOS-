@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import ConciliacionYappy from "../components/ConciliacionYappy";
 import BancoPreview from "../components/banco_preview";
 import { getApiBase } from "../utils/api";
+import { fechaATexto } from "../utils/fechas";
 
 export default function Home() {
   const [cierreFile, setCierreFile] = useState(null);
@@ -368,7 +369,7 @@ export default function Home() {
           <h2 style={styles.sectionTitle}>📋 Vista Cierre POS</h2>
           <div style={styles.infoBox}>
             <p><strong>Sucursal:</strong> {dataCierre.meta?.sucursal || "—"}</p>
-            <p><strong>Fecha:</strong> {dataCierre.meta?.fecha || "—"}</p>
+            <p><strong>Fecha:</strong> {fechaATexto(dataCierre.meta?.fecha) || "—"}</p>
             <p><strong>Cajero:</strong> {dataCierre.meta?.cajero || "—"}</p>
           </div>
           

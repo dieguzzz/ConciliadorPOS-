@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { fechaATexto } from "../utils/fechas";
 
 interface Props {
   cierre: any;
@@ -280,7 +281,7 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
           📍 <strong>Sucursal:</strong> {cierre.meta?.sucursal || "—"}
         </p>
         <p style={styles.infoText}>
-          📅 <strong>Fecha:</strong> {cierreYMD || "No detectada"}
+          📅 <strong>Fecha:</strong> {fechaATexto(fechaCierreRaw) || "No detectada"}
         </p>
       </div>
 

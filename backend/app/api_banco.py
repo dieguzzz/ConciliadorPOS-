@@ -237,16 +237,22 @@ async def banco_preview(
 
         # 🔥 FILTRAR POR FECHA DEL CIERRE
         if fecha_cierre:
+            print(f"🔍 DEBUG: Fecha cierre recibida: '{fecha_cierre}' (tipo: {type(fecha_cierre).__name__})")
             # Convertir fecha del cierre a date object
             try:
                 # Intentar DD/MM/YYYY
                 fecha_obj = datetime.strptime(fecha_cierre, "%d/%m/%Y").date()
-            except:
+                print(f"✅ Fecha parseada como DD/MM/YYYY: {fecha_obj}")
+            except Exception as e1:
+                print(f"⚠️ No se pudo parsear como DD/MM/YYYY: {e1}")
                 try:
                     # Intentar YYYY-MM-DD
                     fecha_obj = datetime.strptime(fecha_cierre, "%Y-%m-%d").date()
-                except:
-                    print(f"⚠️ No se pudo parsear la fecha del cierre: {fecha_cierre}")
+                    print(f"✅ Fecha parseada como YYYY-MM-DD: {fecha_obj}")
+                except Exception as e2:
+                    print(f"❌ No se pudo parsear la fecha del cierre: {fecha_cierre}")
+                    print(f"   Error DD/MM/YYYY: {e1}")
+                    print(f"   Error YYYY-MM-DD: {e2}")
                     fecha_obj = None
             
             if fecha_obj:
