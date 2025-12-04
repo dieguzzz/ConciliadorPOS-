@@ -103,6 +103,18 @@ class TestExtraerCodigo:
         
         desc3 = "TRANSACCION POS: 908-068-171 SUCURSAL BELLA VISTA"
         assert extraer_codigo(desc3) == "908068171"
+    
+    def test_extraer_codigo_multiples_con_patron_90(self):
+        """Debe preferir códigos que empiezan con 90 o 91 (códigos de terminales)"""
+        # Caso real: Referencia + Código terminal pegados
+        desc1 = "DEPOSITO POS-070800001908068184"
+        assert extraer_codigo(desc1) == "908068184"  # Debe tomar el que empieza con 90
+        
+        desc2 = "TRANSACCION 123456789 TERMINAL 908068171"
+        assert extraer_codigo(desc2) == "908068171"  # Debe tomar el que empieza con 90
+        
+        desc3 = "POS 070800001 908068189 COCO DEL MAR"
+        assert extraer_codigo(desc3) == "908068189"  # Debe tomar el que empieza con 90
 
 
 # Para ejecutar los tests:

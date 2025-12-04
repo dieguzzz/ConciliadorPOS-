@@ -83,30 +83,53 @@ def detectar_tipo(descripcion):
 def extraer_codigo(descripcion):
     """
     Extrae el número terminal de 9 dígitos de la descripción.
-    Busca específicamente después de palabras clave como POS, TERM, TERMINAL.
-    Si no las encuentra, toma los últimos 9 dígitos como fallback.
+    Busca TODOS los códigos de 9 dígitos y valida cuál es el código de terminal.
+    Ejemplo: 'DEPOSITO POS-070800001908068184' tiene dos códigos,
+    pero 908068184 es el terminal (empieza con 90).
     """
     if not isinstance(descripcion, str):
         return None
     
     desc = descripcion.upper()
     
-    # Intento 1: Buscar después de palabras clave específicas
-    match = re.search(r'(?:POS|TERM(?:INAL)?)\s*[:#]?\s*(\d{9})', desc, re.IGNORECASE)
-    if match:
-        return match.group(1)
+    # Primero buscar patrones con guiones o espacios (ej: 908-068-171 o 908 068 171)
+    match_guiones = re.search(r'(\d{3})[-\s](\d{3})[-\s](\d{3})', desc)
+    if match_guiones:
+        codigo_con_guiones = ''.join(match_guiones.groups())
+        # Verificar si empieza con 90 o 91 (códigos de terminales)
+        if codigo_con_guiones.startswith(('90', '91')):
+            return codigo_con_guiones
     
-    # Intento 2: Buscar patrón con guiones o espacios (ej: 908-068-171 o 908 068 171)
-    match = re.search(r'(\d{3})[-\s]?(\d{3})[-\s]?(\d{3})', desc)
-    if match:
-        return ''.join(match.groups())
+    # Buscar TODOS los números de 9 dígitos en la descripción
+    todos_codigos = re.findall(r'\b(\d{9})\b', desc)
     
-    # Intento 3 (Fallback): Buscar cualquier secuencia de 9 dígitos (comportamiento original)
-    matches = re.findall(r'\b(\d{9})\b', desc)  # \b = word boundary para ser más preciso
-    if matches:
-        return matches[-1]  # tomar el último grupo
+    if not todos_codigos:
+        # Si no encuentra con word boundary, buscar sin boundary
+        # Útil para casos como "POS-070800001908068184" donde están pegados
+        todos_codigos = re.findall(r'(\d{9})', desc)
     
-    return None
+    # Si encontramos código con guiones y no empieza con 90/91, agregarlo a la lista
+    if match_guiones and match_guiones.group(0) not in todos_codigos:
+        todos_codigos.append(''.join(match_guiones.groups()))
+    
+    if not todos_codigos:
+        return None
+    
+    # Si solo hay uno, retornarlo
+    if len(todos_codigos) == 1:
+        return todos_codigos[0]
+    
+    # 🔥 Si hay múltiples, preferir los que empiezan con 90 o 91 (patrón común de terminales)
+    codigos_terminales = [c for c in todos_codigos if c.startswith(('90', '91'))]
+    
+    if len(codigos_terminales) == 1:
+        return codigos_terminales[0]
+    elif len(codigos_terminales) > 1:
+        # Si hay múltiples que empiezan con 90/91, tomar el último (más a la derecha)
+        return codigos_terminales[-1]
+    
+    # Fallback: tomar el último código encontrado (más a la derecha en la descripción)
+    return todos_codigos[-1]
 
 
 # 🔥 Normalizar nombre de sucursal
