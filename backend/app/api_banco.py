@@ -315,34 +315,31 @@ async def banco_preview(
                 
                 df_proc = df_filtrado
 
-        # 🔥 MARCAR SUCURSAL DEL CIERRE (en lugar de filtrar estrictamente)
+        # 🔥 FILTRAR POR SUCURSAL DEL CIERRE
         if sucursal_cierre:
-            # Mostrar qué sucursales se detectaron
+            # Mostrar qué sucursales se detectaron ANTES de filtrar
             sucursales_detectadas = df_proc["sucursal"].value_counts()
             print(f"🏢 Sucursales detectadas en los registros filtrados por fecha:")
             for suc, count in sucursales_detectadas.items():
                 print(f"   - {suc}: {count} registros")
             
             sucursal_norm = normalizar_sucursal(sucursal_cierre)
-            print(f"🔍 Sucursal del cierre normalizada: '{sucursal_norm}' (original: '{sucursal_cierre}')")
+            print(f"🔍 Filtrando por sucursal normalizada: '{sucursal_norm}' (original: '{sucursal_cierre}')")
             
             df_proc["sucursal_norm"] = df_proc["sucursal"].apply(normalizar_sucursal)
             
-            # Marcar si coincide con la sucursal del cierre (en lugar de filtrar)
-            df_proc["es_sucursal_cierre"] = df_proc["sucursal_norm"] == sucursal_norm
+            antes_sucursal = len(df_proc)
+            # 🔥 FILTRAR: Mostrar SOLO los de la sucursal del cierre
+            df_proc = df_proc[df_proc["sucursal_norm"] == sucursal_norm]
             
-            coinciden = df_proc["es_sucursal_cierre"].sum()
-            total = len(df_proc)
+            print(f"✅ Filtrado por sucursal '{sucursal_cierre}': {len(df_proc)} de {antes_sucursal} registros")
             
-            print(f"✅ Registros que coinciden con '{sucursal_cierre}': {coinciden} de {total}")
-            
-            if coinciden == 0:
-                print(f"⚠️ ADVERTENCIA: Ningún registro coincide con la sucursal '{sucursal_cierre}'")
-                print(f"   Mostrando TODOS los {total} registros de la fecha")
-                print(f"   Sucursales encontradas: {list(sucursales_detectadas.index)}")
-            
-            # NO filtrar, mostrar todos pero marcados
-            df_proc = df_proc.drop(columns=["sucursal_norm"])
+            if len(df_proc) == 0:
+                print(f"⚠️ ADVERTENCIA: No se encontraron registros para la sucursal '{sucursal_cierre}'")
+                print(f"   Sucursales disponibles en esa fecha: {list(sucursales_detectadas.index)}")
+            else:
+                # Eliminar columna temporal
+                df_proc = df_proc.drop(columns=["sucursal_norm"])
 
         # Limpiar duplicados y resetear índice
         df_proc = df_proc.drop_duplicates().reset_index(drop=True)
