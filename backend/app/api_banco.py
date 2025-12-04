@@ -16,6 +16,44 @@ router = APIRouter()
 # Usar funciones de validación centralizadas
 limpiar_monto = clean_amount
 
+def detectar_header_row(content, filename, columnas_esperadas=None):
+    """
+    Detecta automáticamente la fila del header buscando las columnas esperadas.
+    
+    Args:
+        content: Contenido del archivo en bytes
+        filename: Nombre del archivo
+        columnas_esperadas: Lista de nombres de columnas a buscar (case-insensitive)
+    
+    Returns:
+        Número de fila del header (0-indexed) o None si no se encuentra
+    """
+    if columnas_esperadas is None:
+        columnas_esperadas = ["fecha", "descripcion", "credito", "descripción", "crédito"]
+    
+    # Intentar leer las primeras 20 filas sin header para buscar
+    for header_row in range(20):
+        try:
+            df_temp = read_file(content, filename, header=header_row)
+            
+            # Normalizar nombres de columnas
+            cols_lower = [str(c).strip().lower() for c in df_temp.columns]
+            
+            # Verificar si contiene las columnas esperadas
+            coincidencias = sum(1 for col_esperada in columnas_esperadas 
+                              if any(col_esperada in col for col in cols_lower))
+            
+            # Si encontramos al menos 2 columnas esperadas, este es el header
+            if coincidencias >= 2:
+                print(f"✅ Header detectado en fila {header_row + 1} (índice {header_row})")
+                return header_row
+        except:
+            continue
+    
+    # Si no se encuentra, asumir fila 6 (comportamiento original)
+    print(f"⚠️ No se detectó header automáticamente, usando fila 7 (índice 6) por defecto")
+    return 6
+
 def limpiar_fecha(valor):
     """Convierte fecha a date object."""
     fecha_str = clean_date(valor)
@@ -35,20 +73,39 @@ def detectar_tipo(descripcion):
     # Revisar VISA primero
     if "T/C" in desc or "TC" in desc or "TARJETA" in desc:
         return "VISA"
-    elif "POS" in desc:
+    # Buscar POS como palabra completa (word boundary) para evitar falsos positivos como "Deposito"
+    elif re.search(r'\bPOS\b', desc):
         return "CLAVE"
     else:
         return "OTRO"
 
 
 def extraer_codigo(descripcion):
-    """Extrae el número terminal tipo 908068171 de la descripción (últimos 9 dígitos)."""
+    """
+    Extrae el número terminal de 9 dígitos de la descripción.
+    Busca específicamente después de palabras clave como POS, TERM, TERMINAL.
+    Si no las encuentra, toma los últimos 9 dígitos como fallback.
+    """
     if not isinstance(descripcion, str):
         return None
-    # Buscar todos los grupos de 9 dígitos seguidos
-    matches = re.findall(r"(\d{9})", descripcion)
+    
+    desc = descripcion.upper()
+    
+    # Intento 1: Buscar después de palabras clave específicas
+    match = re.search(r'(?:POS|TERM(?:INAL)?)\s*[:#]?\s*(\d{9})', desc, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    
+    # Intento 2: Buscar patrón con guiones o espacios (ej: 908-068-171 o 908 068 171)
+    match = re.search(r'(\d{3})[-\s]?(\d{3})[-\s]?(\d{3})', desc)
+    if match:
+        return ''.join(match.groups())
+    
+    # Intento 3 (Fallback): Buscar cualquier secuencia de 9 dígitos (comportamiento original)
+    matches = re.findall(r'\b(\d{9})\b', desc)  # \b = word boundary para ser más preciso
     if matches:
         return matches[-1]  # tomar el último grupo
+    
     return None
 
 
@@ -79,8 +136,10 @@ async def banco_preview(
             raise HTTPException(status_code=400, detail="Archivo vacío o no recibido.")
 
         filename = file.filename or "archivo.xlsx"
-        # Leer archivo con encabezados en la fila 7 (índice 6)
-        df = read_file(content, filename, header=6)
+        
+        # 🔥 DETECTAR HEADER AUTOMÁTICAMENTE
+        header_row = detectar_header_row(content, filename)
+        df = read_file(content, filename, header=header_row)
 
         # Normalizar nombres de columnas (por si varían en tildes o mayúsculas)
         df.columns = [str(c).strip().lower() for c in df.columns]
@@ -101,6 +160,13 @@ async def banco_preview(
 
         # Limpiar columnas
         df_proc["fecha"] = df_proc["fecha"].apply(limpiar_fecha)
+        
+        # 🔥 AJUSTAR FECHA: El banco registra transacciones al día siguiente
+        # Por ejemplo: una venta del 14/11 aparece en el banco el 15/11
+        # Restamos 1 día para que coincida con la fecha real de la transacción
+        from datetime import timedelta
+        df_proc["fecha"] = df_proc["fecha"].apply(lambda x: x - timedelta(days=1) if x else None)
+        
         df_proc["monto"] = df_proc["monto"].apply(limpiar_monto)
         df_proc["tipo"] = df_proc["descripcion"].apply(detectar_tipo)
         df_proc["codigo"] = df_proc["descripcion"].apply(extraer_codigo)

@@ -7,3 +7,4 @@ openpyxl
 xlrd<2.0
 psycopg2-binary
 python-multipart
+pytest
