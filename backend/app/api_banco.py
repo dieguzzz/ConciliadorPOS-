@@ -234,6 +234,14 @@ async def banco_preview(
 
         # Asignar sucursal
         df_proc["sucursal"] = df_proc["codigo"].map(map_suc).fillna("DESCONOCIDO")
+        
+        # 🔍 DEBUG: Mostrar códigos que no se pudieron mapear
+        desconocidos = df_proc[df_proc["sucursal"] == "DESCONOCIDO"]
+        if len(desconocidos) > 0:
+            codigos_desconocidos = desconocidos["codigo"].unique()
+            print(f"⚠️ {len(desconocidos)} registros con sucursal DESCONOCIDO")
+            print(f"   Códigos no mapeados: {list(codigos_desconocidos)[:10]}")  # Primeros 10
+            print(f"   Ejemplo de descripción: {desconocidos.iloc[0]['descripcion']}")
 
         # 🔥 FILTRAR POR FECHA DEL CIERRE
         if fecha_cierre:
