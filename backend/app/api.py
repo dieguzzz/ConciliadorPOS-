@@ -314,10 +314,23 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         print(f"   📊 Total del bloque: {total_fmt}, Items encontrados: {len(items)}")
         return items, total_fmt
 
-    # Ajustar columnas según estructura real:
-    # YAPPY: columnas H (nombre), I (monto), J (facturo), K (P) - total en I29
-    # ACH: columnas M (nombre), N (monto) - total en N29
-    # PEDIDOS YA: columnas P (nombre), Q (monto) - total en Q29
+    # Ajustar columnas según estructura real del Excel:
+    # Según los logs, YAPPY tiene datos pero necesitamos encontrar las columnas correctas
+    # DEBUG: Mostrar qué hay en las columnas H-Q (índices 7-16) en filas 13-20
+    print(f"\n📦 DEBUG: Buscando bloques de detalle (filas 13-20, columnas H-Q):")
+    for f_idx in range(12, min(21, len(df_raw))):  # Filas 13-20 (0-based: 12-19)
+        row_data = []
+        for col_idx in range(7, min(17, len(df_raw.columns))):  # H-Q (índices 7-16)
+            val = df_raw.iloc[f_idx, col_idx] if f_idx < len(df_raw) else None
+            if val is not None and pd.notna(val) and str(val).strip():
+                col_letter = chr(ord('A') + col_idx)
+                row_data.append(f"{col_letter}{f_idx+1}={str(val)[:20]}")
+        if row_data:
+            print(f"   Fila {f_idx+1}: {' | '.join(row_data[:3])}")  # Primeros 3 valores
+    
+    # Según la estructura del Excel mostrada:
+    # YAPPY: parece estar en columnas H-I (índices 7-8) pero necesitamos verificar
+    # Buscar YAPPY de manera más flexible
     detalle_yappy, total_yappy = _leer_bloque("H", "I", 13, 29, "I")  # H=nombre, I=monto, total en I29
     detalle_ach, total_ach = _leer_bloque("M", "N", 13, 29, "N")  # M=nombre, N=monto, total en N29
     detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
