@@ -95,39 +95,77 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         return None
 
     # Buscar cajero, fecha y sucursal de manera más flexible
-    # Intentar múltiples filas alrededor de la fila 8
+    # Según la estructura real: Fila 6 tiene labels, Fila 7 tiene valores
+    # Cajero está en C7, Fecha en G7, Sucursal en K7
     cajero = None
     fecha_v = None
     suc_v = None
     
-    for fila_offset in range(-2, 3):  # Buscar desde fila 6 hasta 10
-        fila_base = 8 + fila_offset
-        if fila_base < 1 or fila_base >= len(df_raw):
+    # Buscar en fila 7 primero (estructura más común)
+    for fila_base in [7, 8, 6, 9]:  # Priorizar fila 7, luego 8, 6, 9
+        if fila_base < 1 or fila_base > len(df_raw):
             continue
-            
-        # Buscar cajero
+        
+        # Buscar cajero (puede estar en C, D, E, F, G)
         if not cajero:
-            for col in ["E", "F", "G", "D", "H"]:
-                cajero = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
-                if cajero and str(cajero).strip():
-                    break
+            for col in ["C", "D", "E", "F", "G", "B", "H"]:
+                val = _get(df_raw, f"{col}{fila_base}")
+                if val and str(val).strip() and str(val).strip().upper() not in ["NAN", "NONE", "", "CIERRE REALIZO POR", "CIERRE REALIZADO POR"]:
+                    # Verificar que no sea un label
+                    val_str = str(val).strip().upper()
+                    if "CIERRE" not in val_str and "FECHA" not in val_str and "SUCURSAL" not in val_str:
+                        cajero = val
+                        break
         
-        # Buscar fecha
+        # Buscar fecha (puede estar en G, H, I, J, K, L)
         if not fecha_v:
-            for col in ["I", "J", "K", "L", "H", "M"]:
-                fecha_v = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
-                if fecha_v and str(fecha_v).strip() and str(fecha_v).strip().upper() not in ["NAN", "NONE", ""]:
-                    break
+            for col in ["G", "H", "I", "J", "K", "L", "F", "M"]:
+                val = _get(df_raw, f"{col}{fila_base}")
+                if val and str(val).strip():
+                    val_str = str(val).strip()
+                    # Verificar que parezca una fecha (tiene / o es datetime)
+                    if "/" in val_str or isinstance(val, (datetime, pd.Timestamp)) or re.match(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}', val_str):
+                        fecha_v = val
+                        break
         
-        # Buscar sucursal
+        # Buscar sucursal (puede estar en K, L, M, N, O, P, Q)
         if not suc_v:
-            for col in ["N", "O", "P", "Q", "M", "R"]:
-                suc_v = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
-                if suc_v and str(suc_v).strip() and str(suc_v).strip().upper() not in ["NAN", "NONE", ""]:
-                    break
+            for col in ["K", "L", "M", "N", "O", "P", "Q", "J", "R"]:
+                val = _get(df_raw, f"{col}{fila_base}")
+                if val and str(val).strip() and str(val).strip().upper() not in ["NAN", "NONE", "", "SUCURSAL"]:
+                    val_str = str(val).strip().upper()
+                    if "SUCURSAL" not in val_str and "FECHA" not in val_str:
+                        suc_v = val
+                        break
         
         if cajero and fecha_v and suc_v:
             break
+    
+    # Si no encontramos en fila 7, buscar debajo de labels en fila 6
+    if not cajero or not fecha_v or not suc_v:
+        # Buscar debajo de "CIERRE REALIZO POR" o "CIERRE REALIZADO POR" en fila 6
+        for col in range(ord('A'), ord('Z') + 1):
+            col_letter = chr(col)
+            val = _get(df_raw, f"{col_letter}6")
+            if val and "CIERRE REALIZ" in str(val).upper():
+                cajero = cajero or _get(df_raw, f"{col_letter}7") or _below(df_raw, f"{col_letter}6")
+                break
+        
+        # Buscar debajo de "FECHA DE CIERRE" en fila 6
+        for col in range(ord('A'), ord('Z') + 1):
+            col_letter = chr(col)
+            val = _get(df_raw, f"{col_letter}6")
+            if val and "FECHA" in str(val).upper():
+                fecha_v = fecha_v or _get(df_raw, f"{col_letter}7") or _below(df_raw, f"{col_letter}6")
+                break
+        
+        # Buscar debajo de "SUCURSAL" en fila 6
+        for col in range(ord('A'), ord('Z') + 1):
+            col_letter = chr(col)
+            val = _get(df_raw, f"{col_letter}6")
+            if val and "SUCURSAL" in str(val).upper():
+                suc_v = suc_v or _get(df_raw, f"{col_letter}7") or _below(df_raw, f"{col_letter}6")
+                break
     
     print(f"📋 Datos encontrados:")
     print(f"   Cajero: {cajero}")
@@ -200,21 +238,37 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         total_fmt = f"B/. {total_val_f:.2f}" if pd.notna(total_val_f) else None
         return items, total_fmt
 
-    detalle_yappy, total_yappy = _leer_bloque("I", "J", 15, 37, "K")
-    detalle_ach, total_ach = _leer_bloque("N", "O", 15, 26, "O")
-    detalle_pedidosya, total_pedya = _leer_bloque("Q", "R", 15, 37, "R")
+    # Ajustar columnas según estructura real:
+    # YAPPY: columnas H (nombre), I (monto), J (facturo), K (P) - total en I29
+    # ACH: columnas M (nombre), N (monto) - total en N29
+    # PEDIDOS YA: columnas P (nombre), Q (monto) - total en Q29
+    detalle_yappy, total_yappy = _leer_bloque("H", "I", 13, 29, "I")  # H=nombre, I=monto, total en I29
+    detalle_ach, total_ach = _leer_bloque("M", "N", 13, 29, "N")  # M=nombre, N=monto, total en N29
+    detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
 
+    # Los totales están en columna B (no a la derecha)
+    # Buscar de manera flexible en columna B
     lecturas = [
-        ("EFECTIVO", "A13", "Derecha"), ("FONDO DE CAJA", "A14", "Derecha"),
-        ("DEBITO (CLAVE)", "A16", "Derecha"), ("CREDITO (VISA/MASTER)", "A17", "Derecha"),
-        ("TOTAL CON PEYA", "A20", "Derecha"), ("TOTAL SIN PEYA", "A21", "Derecha"),
-        ("TOTAL DE INGRESO", "A24", "Derecha"), ("CIERRE DEL SISTEMA", "A25", "Derecha"),
-        ("DIFERENCIA", "A26", "Derecha"), ("A DEPOSITAR EN EFECTIVO", "A28", "Derecha"),
+        ("EFECTIVO", "A13", "B"), ("FONDO DE CAJA", "A14", "B"),
+        ("YAPPY", "A15", "B"), ("DEBITO (CLAVE)", "A16", "B"), 
+        ("CREDITO (VISA/MASTER)", "A17", "B"), ("LINK WEB", "A18", "B"),
+        ("ACH", "A19", "B"), ("PEDIDOS YA", "A20", "B"),
+        ("TOTAL CON PEYA", "A21", "B"), ("TOTAL SIN PEYA", "A22", "B"),
+        ("TOTAL DE INGRESO", "A24", "B"), ("CIERRE DEL SISTEMA", "A25", "B"),
+        ("DIFERENCIA", "A26", "B"), ("A DEPOSITAR EN EFECTIVO", "A28", "B"),
     ]
 
     totales = {}
-    for nombre, celda, modo in lecturas:
-        val = _right_of(df_raw, celda, max_steps=6) if modo == "Derecha" else _below(df_raw, celda, max_steps=6)
+    for nombre, celda, col_destino in lecturas:
+        # Si col_destino es "B", buscar directamente en columna B
+        # Si es "Derecha", buscar a la derecha
+        if col_destino == "B":
+            # Extraer fila de celda (ej: "A13" -> fila 13)
+            r, _ = _cell_to_rc(celda)
+            fila = r + 1  # Convertir a 1-based
+            val = _get(df_raw, f"B{fila}")
+        else:
+            val = _right_of(df_raw, celda, max_steps=6) if col_destino == "Derecha" else _below(df_raw, celda, max_steps=6)
         totales[nombre] = round(float(_to_float(val)), 2) if pd.notna(_to_float(val)) else np.nan
 
     if total_yappy: totales["YAPPY"] = _to_float(total_yappy)
