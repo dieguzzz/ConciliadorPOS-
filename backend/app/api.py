@@ -621,12 +621,26 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
 
     def clean_monto(v):
         if pd.isna(v): return 0.0
-        s = str(v).strip().replace("B/.", "").replace("$", "").replace(",", "")
+        s = str(v).strip().replace("B/.", "").replace("B/ ", "").replace("$", "").replace(",", "").replace(" ", "")
         try: return float(s)
-        except: return 0.0
+        except: 
+            # Intentar extraer número con regex
+            match = re.search(r'[-+]?\d*\.?\d+', s)
+            return float(match.group(0)) if match else 0.0
 
     df_yappy["total"] = df_yappy["total"].apply(clean_monto)
-    df_yappy = df_yappy[(df_yappy["fecha"].notna()) & (df_yappy["total"] > 0)]
+    
+    # Filtrar filas válidas: debe tener fecha Y (total > 0 O cliente válido)
+    # Esto permite capturar transacciones aunque el monto esté en otra columna
+    antes_filtro = len(df_yappy)
+    df_yappy = df_yappy[
+        (df_yappy["fecha"].notna()) & 
+        (
+            (df_yappy["total"] > 0) | 
+            (df_yappy["cliente"].notna() & (df_yappy["cliente"].astype(str).str.strip() != ""))
+        )
+    ]
+    print(f"📊 Filas después de filtro: {len(df_yappy)} de {antes_filtro}")
 
     if fecha_cierre_str:
         try:
