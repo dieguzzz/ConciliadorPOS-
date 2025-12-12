@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { FaFileUpload, FaCheckCircle, FaSpinner } from "react-icons/fa";
 import ConciliacionYappy from "../components/ConciliacionYappy";
 import BancoPreview from "../components/banco_preview";
@@ -21,6 +21,11 @@ export default function Home() {
   const [bancoLoading, setBancoLoading] = useState(false);
 
   const [hojaSeleccionada, setHojaSeleccionada] = useState("1");
+
+  // Refs para los inputs de archivo
+  const cierreInputRef = useRef(null);
+  const yappyInputRef = useRef(null);
+  const bancoInputRef = useRef(null);
 
   // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
   const recargarCierre = async (file) => {
@@ -324,21 +329,21 @@ export default function Home() {
                   }}
                   min="1"
                 />
-                <label style={{ flex: 1 }}>
-                  <input 
-                    type="file" 
-                    accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-                    onChange={handleCierreUpload} 
-                    style={{ display: "none" }}
-                  />
-                  <Button 
-                    variant="primary" 
-                    fullWidth
-                    disabled={cierreLoading}
-                  >
-                    {cierreFile ? cierreFile.name : "Seleccionar archivo"}
-                  </Button>
-                </label>
+                <input 
+                  ref={cierreInputRef}
+                  type="file" 
+                  accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                  onChange={handleCierreUpload} 
+                  style={{ display: "none" }}
+                />
+                <Button 
+                  variant="primary" 
+                  fullWidth
+                  disabled={cierreLoading}
+                  onClick={() => cierreInputRef.current?.click()}
+                >
+                  {cierreFile ? cierreFile.name : "Seleccionar archivo"}
+                </Button>
               </div>
               {cierreLoading && (
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
@@ -369,21 +374,21 @@ export default function Home() {
               Archivo Yappy
             </CardHeader>
             <CardBody>
-              <label style={{ display: "block", marginBottom: "1rem" }}>
-                <input 
-                  type="file" 
-                  accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-                  onChange={handleYappyUpload} 
-                  style={{ display: "none" }}
-                />
-                <Button 
-                  variant="primary" 
-                  fullWidth
-                  disabled={yappyLoading}
-                >
-                  {yappyFile ? yappyFile.name : "Seleccionar archivo"}
-                </Button>
-              </label>
+              <input 
+                ref={yappyInputRef}
+                type="file" 
+                accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                onChange={handleYappyUpload} 
+                style={{ display: "none" }}
+              />
+              <Button 
+                variant="primary" 
+                fullWidth
+                disabled={yappyLoading}
+                onClick={() => yappyInputRef.current?.click()}
+              >
+                {yappyFile ? yappyFile.name : "Seleccionar archivo"}
+              </Button>
               {yappyLoading && (
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
                   <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
@@ -412,21 +417,21 @@ export default function Home() {
               Archivo Bancario
             </CardHeader>
             <CardBody>
-              <label style={{ display: "block", marginBottom: "1rem" }}>
-                <input 
-                  type="file" 
-                  accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-                  onChange={handleBancoUpload} 
-                  style={{ display: "none" }}
-                />
-                <Button 
-                  variant="primary" 
-                  fullWidth
-                  disabled={bancoLoading}
-                >
-                  {bancoFile ? bancoFile.name : "Seleccionar archivo"}
-                </Button>
-              </label>
+              <input 
+                ref={bancoInputRef}
+                type="file" 
+                accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                onChange={handleBancoUpload} 
+                style={{ display: "none" }}
+              />
+              <Button 
+                variant="primary" 
+                fullWidth
+                disabled={bancoLoading}
+                onClick={() => bancoInputRef.current?.click()}
+              >
+                {bancoFile ? bancoFile.name : "Seleccionar archivo"}
+              </Button>
               {bancoLoading && (
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
                   <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
