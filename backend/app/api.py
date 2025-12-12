@@ -685,9 +685,30 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
             else:
                 print(f"✅ Filtradas {len(df_filtrado)} transacciones para '{fecha_norm}'")
             
+            # 🔥 NUEVO: Buscar transacciones con el mismo monto pero diferente fecha (para coincidencias parciales)
+            if len(df_filtrado) > 0:
+                montos_encontrados = df_filtrado["total"].unique()
+                print(f"💰 Buscando transacciones con montos coincidentes ({len(montos_encontrados)} montos únicos) para coincidencias parciales...")
+                
+                # Buscar todas las transacciones que tengan alguno de los montos encontrados
+                df_montos_coincidentes = df_yappy[df_yappy["total"].isin(montos_encontrados)]
+                
+                # Excluir las que ya están en df_filtrado (para no duplicar)
+                df_montos_coincidentes = df_montos_coincidentes[
+                    ~df_montos_coincidentes.index.isin(df_filtrado.index)
+                ]
+                
+                if len(df_montos_coincidentes) > 0:
+                    print(f"✅ Encontradas {len(df_montos_coincidentes)} transacciones adicionales con montos coincidentes (diferentes fechas)")
+                    # Combinar las transacciones de la fecha exacta con las de montos coincidentes
+                    df_filtrado = pd.concat([df_filtrado, df_montos_coincidentes]).reset_index(drop=True)
+                    print(f"📊 Total transacciones incluidas: {len(df_filtrado)} ({len(df_filtrado) - len(df_montos_coincidentes)} de fecha exacta + {len(df_montos_coincidentes)} por monto coincidente)")
+                else:
+                    print(f"   No se encontraron transacciones adicionales con montos coincidentes")
+            
             df_yappy = df_filtrado
-        except:
-            print(f"⚠️ No se pudo parsear fecha_cierre: {fecha_cierre_str}")
+        except Exception as e:
+            print(f"⚠️ No se pudo parsear fecha_cierre: {fecha_cierre_str}, error: {e}")
 
     return {"data": df_yappy.to_dict(orient="records")}
 
