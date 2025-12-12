@@ -27,3 +27,64 @@ body {
   margin: 0;
   padding: 0;
 }
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tablas con scroll horizontal en móviles */
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* Botones más grandes para touch */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Modales a pantalla completa en móviles */
+  .modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.25rem !important;
+  }
+
+  /* Cards más compactas */
+  .card {
+    padding: 1rem !important;
+  }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  button:hover {
+    opacity: 1;
+  }
+
+  button:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+}

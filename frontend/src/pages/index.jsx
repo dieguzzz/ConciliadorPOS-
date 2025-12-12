@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { FaFileUpload, FaCheckCircle, FaSpinner } from "react-icons/fa";
 import ConciliacionYappy from "../components/ConciliacionYappy";
 import BancoPreview from "../components/banco_preview";
 import { getApiBase } from "../utils/api";
 import { fechaATexto } from "../utils/fechas";
+import { Card, CardHeader, CardBody, Button, ProgressBar, Table } from "../components/ui";
+import { notify } from "../utils/notifications";
+import "../styles/theme.css";
 
 export default function Home() {
   const [cierreFile, setCierreFile] = useState(null);
@@ -180,9 +184,10 @@ export default function Home() {
       }
       
       setDataCierre(json);
+      notify.success(`Archivo de cierre cargado correctamente`);
     } catch (err) {
       const errorMsg = err.message || "Error desconocido al procesar el archivo de cierre";
-      alert(`Error procesando archivo Cierre:\n${errorMsg}`);
+      notify.error(`Error procesando archivo Cierre: ${errorMsg}`);
       console.error("❌ Error cargando Cierre:", err);
       setDataCierre(null);
     } finally {
@@ -221,9 +226,10 @@ export default function Home() {
       }
       
       setDataYappy(json);
+      notify.success(`${json.total_rows || 0} transacciones Yappy cargadas`);
     } catch (err) {
       const errorMsg = err.message || "Error desconocido al procesar el archivo Yappy";
-      alert(`Error procesando archivo Yappy:\n${errorMsg}`);
+      notify.error(`Error procesando archivo Yappy: ${errorMsg}`);
       console.error("❌ Error cargando Yappy:", err);
       setDataYappy(null);
     } finally {
@@ -266,9 +272,10 @@ export default function Home() {
       }
       
       setDataBanco(json);
+      notify.success(`${json.total_registros || 0} movimientos bancarios cargados`);
     } catch (err) {
       const errorMsg = err.message || "Error desconocido al procesar el archivo bancario";
-      alert(`Error procesando archivo Banco:\n${errorMsg}`);
+      notify.error(`Error procesando archivo Banco: ${errorMsg}`);
       console.error("❌ Error cargando Banco:", err);
       setDataBanco(null);
     } finally {
@@ -277,121 +284,232 @@ export default function Home() {
   };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "Arial, sans-serif", background: "#f5f5f5", minHeight: "100vh" }}>
-      <h1 style={{ textAlign: "center", color: "#6b5b95", marginBottom: "2rem" }}>
-        Vista Previa de Cierre POS
-      </h1>
+    <div style={{ 
+      padding: "2rem", 
+      fontFamily: "system-ui, -apple-system, sans-serif", 
+      background: "var(--color-background)", 
+      minHeight: "100vh" 
+    }}>
+      <div className="container">
+        <h1 style={{ 
+          textAlign: "center", 
+          color: "var(--color-primary)", 
+          marginBottom: "2rem",
+          fontSize: "2rem",
+          fontWeight: 700
+        }}>
+          Vista Previa de Cierre POS
+        </h1>
 
-      {/* Cards de carga de archivos */}
-      <div style={{ 
-        display: "grid", 
-        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", 
-        gap: "1.5rem", 
-        marginBottom: "2rem",
-        maxWidth: "1200px",
-        margin: "0 auto 2rem"
-      }}>
-        
-        {/* Cierre */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>📁 Archivo Cierre</div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <input 
-              type="number" 
-              value={hojaSeleccionada}
-              onChange={(e) => setHojaSeleccionada(e.target.value)}
-              placeholder="N° Hoja"
-              style={styles.input}
-              min="1"
-            />
-            <label style={styles.fileLabel}>
-              {cierreFile ? cierreFile.name : "Seleccionar archivo"}
-              <input 
-                type="file" 
-                accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-                onChange={handleCierreUpload} 
-                style={{ display: "none" }}
-              />
-            </label>
-          </div>
-          {cierreLoading && <div style={styles.loading}>⏳ Procesando...</div>}
-          {dataCierre && !cierreLoading && (
-            <div style={styles.success}>
-              ✅ Cargado: {dataCierre.meta?.sucursal} - {dataCierre.meta?.fecha}
-            </div>
-          )}
-        </div>
+        {/* Cards de carga de archivos */}
+        <div className="grid grid-cols-3" style={{ marginBottom: "2rem" }}>
+          {/* Cierre */}
+          <Card>
+            <CardHeader>
+              <FaFileUpload style={{ marginRight: "0.5rem", display: "inline" }} />
+              Archivo Cierre
+            </CardHeader>
+            <CardBody>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "1rem" }}>
+                <input 
+                  type="number" 
+                  value={hojaSeleccionada}
+                  onChange={(e) => setHojaSeleccionada(e.target.value)}
+                  placeholder="N° Hoja"
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--color-border)",
+                    fontSize: "0.95rem",
+                    width: "80px"
+                  }}
+                  min="1"
+                />
+                <label style={{ flex: 1 }}>
+                  <input 
+                    type="file" 
+                    accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                    onChange={handleCierreUpload} 
+                    style={{ display: "none" }}
+                  />
+                  <Button 
+                    variant="primary" 
+                    fullWidth
+                    disabled={cierreLoading}
+                  >
+                    {cierreFile ? cierreFile.name : "Seleccionar archivo"}
+                  </Button>
+                </label>
+              </div>
+              {cierreLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                  <span>Procesando...</span>
+                </div>
+              )}
+              {dataCierre && !cierreLoading && (
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "0.5rem", 
+                  color: "var(--color-success)",
+                  fontSize: "0.9rem",
+                  marginTop: "0.5rem"
+                }}>
+                  <FaCheckCircle />
+                  <span>{dataCierre.meta?.sucursal} - {dataCierre.meta?.fecha}</span>
+                </div>
+              )}
+            </CardBody>
+          </Card>
 
-        {/* Yappy */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>💸 Archivo Yappy</div>
-          <label style={styles.fileLabel}>
-            {yappyFile ? yappyFile.name : "Seleccionar archivo"}
-            <input 
-              type="file" 
-              accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-              onChange={handleYappyUpload} 
-              style={{ display: "none" }}
-            />
-          </label>
-          {yappyLoading && <div style={styles.loading}>⏳ Procesando...</div>}
-          {dataYappy && !yappyLoading && (
-            <div style={styles.success}>
-              ✅ {dataYappy.total_rows || 0} transacciones cargadas
-            </div>
-          )}
-        </div>
+          {/* Yappy */}
+          <Card>
+            <CardHeader>
+              <FaFileUpload style={{ marginRight: "0.5rem", display: "inline" }} />
+              Archivo Yappy
+            </CardHeader>
+            <CardBody>
+              <label style={{ display: "block", marginBottom: "1rem" }}>
+                <input 
+                  type="file" 
+                  accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                  onChange={handleYappyUpload} 
+                  style={{ display: "none" }}
+                />
+                <Button 
+                  variant="primary" 
+                  fullWidth
+                  disabled={yappyLoading}
+                >
+                  {yappyFile ? yappyFile.name : "Seleccionar archivo"}
+                </Button>
+              </label>
+              {yappyLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                  <span>Procesando...</span>
+                </div>
+              )}
+              {dataYappy && !yappyLoading && (
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "0.5rem", 
+                  color: "var(--color-success)",
+                  fontSize: "0.9rem"
+                }}>
+                  <FaCheckCircle />
+                  <span>{dataYappy.total_rows || 0} transacciones</span>
+                </div>
+              )}
+            </CardBody>
+          </Card>
 
-        {/* Banco */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>🏦 Archivo Bancario</div>
-          <label style={styles.fileLabel}>
-            {bancoFile ? bancoFile.name : "Seleccionar archivo"}
-            <input 
-              type="file" 
-              accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
-              onChange={handleBancoUpload} 
-              style={{ display: "none" }}
-            />
-          </label>
-          {bancoLoading && <div style={styles.loading}>⏳ Procesando...</div>}
-          {dataBanco && !bancoLoading && (
-            <div style={styles.success}>
-              ✅ {dataBanco.total_registros || 0} movimientos cargados
-            </div>
-          )}
+          {/* Banco */}
+          <Card>
+            <CardHeader>
+              <FaFileUpload style={{ marginRight: "0.5rem", display: "inline" }} />
+              Archivo Bancario
+            </CardHeader>
+            <CardBody>
+              <label style={{ display: "block", marginBottom: "1rem" }}>
+                <input 
+                  type="file" 
+                  accept=".xlsx,.xls,.xlsm,.xlsb,.csv,.ods" 
+                  onChange={handleBancoUpload} 
+                  style={{ display: "none" }}
+                />
+                <Button 
+                  variant="primary" 
+                  fullWidth
+                  disabled={bancoLoading}
+                >
+                  {bancoFile ? bancoFile.name : "Seleccionar archivo"}
+                </Button>
+              </label>
+              {bancoLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-warning)" }}>
+                  <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                  <span>Procesando...</span>
+                </div>
+              )}
+              {dataBanco && !bancoLoading && (
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "0.5rem", 
+                  color: "var(--color-success)",
+                  fontSize: "0.9rem"
+                }}>
+                  <FaCheckCircle />
+                  <span>{dataBanco.total_registros || 0} movimientos</span>
+                </div>
+              )}
+            </CardBody>
+          </Card>
         </div>
-      </div>
 
       {/* Vista del Cierre POS */}
       {dataCierre && !dataCierre.error && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>📋 Vista Cierre POS</h2>
-          <div style={styles.infoBox}>
-            <p><strong>Sucursal:</strong> {dataCierre.meta?.sucursal || "—"}</p>
-            <p><strong>Fecha:</strong> {fechaATexto(dataCierre.meta?.fecha) || "—"}</p>
-            <p><strong>Cajero:</strong> {dataCierre.meta?.cajero || "—"}</p>
-          </div>
-          
-          <table style={styles.table}>
-            <thead>
-              <tr style={{ background: "#fff6d6" }}>
-                <th style={styles.th}>Concepto</th>
-                <th style={{ ...styles.th, textAlign: "right" }}>Monto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dataCierre.tabla?.map((row, idx) => (
-                <tr key={idx} style={{ borderBottom: "1px solid #e0e0e0" }}>
-                  <td style={styles.td}>{row.origen}</td>
-                  <td style={{ ...styles.td, textAlign: "right", fontWeight: "600" }}>
-                    B/. {row.monto?.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card style={{ marginBottom: "2rem" }}>
+          <CardHeader>📋 Vista Cierre POS</CardHeader>
+          <CardBody>
+            <div style={{
+              background: "#f8f6ff",
+              padding: "1rem",
+              borderRadius: "6px",
+              marginBottom: "1rem",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: "1rem"
+            }}>
+              <div>
+                <strong style={{ color: "var(--color-text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  Sucursal:
+                </strong>
+                <span>{dataCierre.meta?.sucursal || "—"}</span>
+              </div>
+              <div>
+                <strong style={{ color: "var(--color-text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  Fecha:
+                </strong>
+                <span>{fechaATexto(dataCierre.meta?.fecha) || "—"}</span>
+              </div>
+              <div>
+                <strong style={{ color: "var(--color-text-muted)", display: "block", marginBottom: "0.25rem" }}>
+                  Cajero:
+                </strong>
+                <span>{dataCierre.meta?.cajero || "—"}</span>
+              </div>
+            </div>
+            
+            {dataCierre.tabla && dataCierre.tabla.length > 0 ? (
+              <Table
+                data={dataCierre.tabla}
+                columns={[
+                  {
+                    key: "origen",
+                    label: "Concepto",
+                    sortable: true
+                  },
+                  {
+                    key: "monto",
+                    label: "Monto",
+                    sortable: true,
+                    align: "right",
+                    render: (value) => `B/. ${value?.toFixed(2) || "0.00"}`
+                  }
+                ]}
+                pagination={{ pageSize: 10, showPagination: dataCierre.tabla.length > 10 }}
+              />
+            ) : (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-text-muted)" }}>
+                No hay datos de totales disponibles
+              </div>
+            )}
+          </CardBody>
+        </Card>
       )}
 
       {/* Conciliación Yappy */}

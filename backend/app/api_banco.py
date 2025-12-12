@@ -4,11 +4,16 @@ import pandas as pd
 import io
 import re
 import traceback
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from app.utils.file_reader import read_file, detect_file_type
 from app.utils.validators import clean_amount, clean_date, validate_dataframe, normalize_text
 from app.utils.column_detector import ColumnDetector, normalize_column_name, fuzzy_match_score
+from app.utils.response_formatter import success_response, error_response, create_response
+from app.utils.logger import app_logger, log_with_context
+import logging
 
 router = APIRouter()
 
@@ -209,10 +214,14 @@ async def banco_preview(
     Lee el archivo de movimientos bancarios (CLAVE/VISA),
     limpia y filtra por fecha y sucursal del cierre.
     """
+    # Definir request_id y start_time al inicio para que estén disponibles en todos los bloques except
+    request_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    
     try:
-        print(f"📥 Recibido archivo banco: {file.filename}")
-        print(f"📅 Fecha del cierre: {fecha_cierre}")
-        print(f"🏢 Sucursal del cierre: {sucursal_cierre}")
+        app_logger.info(f"Recibido archivo banco: {file.filename}", extra={"request_id": request_id})
+        app_logger.info(f"Fecha del cierre: {fecha_cierre}", extra={"request_id": request_id})
+        app_logger.info(f"Sucursal del cierre: {sucursal_cierre}", extra={"request_id": request_id})
 
         # Leer contenido del archivo subido
         content = await file.read()
@@ -551,22 +560,26 @@ async def banco_preview(
             if detection["column_index"] is not None
         }
 
-        return {
-            "ok": True,
-            "message": f"Archivo procesado: {len(preview)} registros coinciden",
-            "total_registros": len(preview),
-            "preview": preview,
-            "filtros": {
-                "fecha": fecha_cierre,
-                "sucursal": sucursal_cierre
+        return success_response(
+            data={
+                "preview": preview,
+                "total_registros": len(preview),
+                "filtros": {
+                    "fecha": fecha_cierre,
+                    "sucursal": sucursal_cierre
+                },
+                "detection_confidence": round(avg_confidence, 1),
+                "detected_columns": detected_columns_info,
+                "validation_results": {
+                    "overall_valid": validation.get("overall_valid", True),
+                    "warnings": validation.get("warnings", [])
+                }
             },
-            "detection_confidence": round(avg_confidence, 1),
-            "detected_columns": detected_columns_info,
-            "validation_results": {
-                "overall_valid": validation.get("overall_valid", True),
-                "warnings": validation.get("warnings", [])
-            }
-        }
+            message=f"Archivo procesado: {len(preview)} registros coinciden",
+            warnings=validation.get("warnings", []),
+            request_id=request_id,
+            start_time=start_time
+        )
 
     except HTTPException:
         raise
@@ -592,11 +605,27 @@ async def banco_preview(
         else:
             detail_msg = f"Error en el formato del archivo: {error_msg}. Verifica que el archivo tenga el formato correcto."
         
-        raise HTTPException(status_code=400, detail=detail_msg)
+        raise HTTPException(
+            status_code=400,
+            detail=error_response(
+                errors=[detail_msg],
+                message="Error al procesar archivo bancario",
+                request_id=request_id,
+                start_time=start_time
+            )
+        )
     except Exception as e:
-        traceback.print_exc()
         error_type = type(e).__name__
         error_msg = str(e)
+        
+        log_with_context(
+            app_logger,
+            logging.ERROR,
+            f"Error inesperado en banco_preview: {error_msg}",
+            request_id=request_id,
+            extra_data={"error_type": error_type},
+            exc_info=e
+        )
         
         # Mensajes más específicos según el tipo de error
         if "FileNotFoundError" in error_type or "No such file" in error_msg:
@@ -623,5 +652,12 @@ async def banco_preview(
                 f"Si el problema persiste, contacta al administrador."
             )
         
-        print(f"❌ {detail_msg}")
-        raise HTTPException(status_code=500, detail=detail_msg)
+        raise HTTPException(
+            status_code=500,
+            detail=error_response(
+                errors=[detail_msg],
+                message="Error interno al procesar archivo",
+                request_id=request_id,
+                start_time=start_time
+            )
+        )
