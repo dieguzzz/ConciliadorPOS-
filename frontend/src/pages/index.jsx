@@ -6,7 +6,6 @@ import { getApiBase } from "../utils/api";
 import { fechaATexto } from "../utils/fechas";
 import { Card, CardHeader, CardBody, Button, ProgressBar, Table } from "../components/ui";
 import { notify } from "../utils/notifications";
-import "../styles/theme.css";
 
 export default function Home() {
   const [cierreFile, setCierreFile] = useState(null);
@@ -521,87 +520,7 @@ export default function Home() {
       {dataBanco && dataBanco.ok && (
         <BancoPreview data={dataBanco} />
       )}
+      </div>
     </div>
   );
 }
-
-const styles = {
-  card: {
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "1.5rem",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-    border: "2px solid #e0e0e0",
-  },
-  cardHeader: {
-    fontSize: "1.1rem",
-    fontWeight: "700",
-    color: "#6b5b95",
-    marginBottom: "1rem",
-  },
-  input: {
-    padding: "8px 12px",
-    borderRadius: "8px",
-    border: "1px solid #ccc",
-    fontSize: "0.95rem",
-    width: "80px",
-  },
-  fileLabel: {
-    display: "inline-block",
-    padding: "10px 20px",
-    background: "#6b5b95",
-    color: "#fff",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "0.9rem",
-    transition: "background 0.3s",
-    textAlign: "center",
-    flex: 1,
-  },
-  loading: {
-    marginTop: "10px",
-    color: "#f59e0b",
-    fontSize: "0.9rem",
-    fontWeight: "600",
-  },
-  success: {
-    marginTop: "10px",
-    color: "#10b981",
-    fontSize: "0.9rem",
-    fontWeight: "600",
-  },
-  section: {
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "1.5rem",
-    marginBottom: "2rem",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-  },
-  sectionTitle: {
-    color: "#6b5b95",
-    marginBottom: "1rem",
-    fontSize: "1.3rem",
-  },
-  infoBox: {
-    background: "#f8f6ff",
-    padding: "12px",
-    borderRadius: "8px",
-    marginBottom: "1rem",
-    fontSize: "0.95rem",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  th: {
-    padding: "10px",
-    textAlign: "left",
-    fontWeight: "700",
-    borderBottom: "2px solid #6b5b95",
-  },
-  td: {
-    padding: "10px",
-    fontSize: "0.95rem",
-  },
-};

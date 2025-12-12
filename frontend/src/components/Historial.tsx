@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FaHistory, FaEye, FaTrash, FaSearch } from 'react-icons/fa';
-import { Card, CardHeader, CardBody, Table, Button, Modal, FilterPanel, Filter } from './ui';
+import { Card, CardHeader, CardBody, Table, Button, Modal } from './ui';
+import { FilterPanel, Filter } from './FilterPanel';
 import { getApiBase } from '../utils/api';
 import { notify } from '../utils/notifications';
 
