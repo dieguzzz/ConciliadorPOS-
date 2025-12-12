@@ -322,6 +322,7 @@ async def banco_preview(
         for ruta in posibles_rutas:
             if ruta.exists():
                 lista_path = ruta
+                print(f"✅ Archivo Lista_Punto_Venta.xlsx encontrado en: {ruta}")
                 break
         
         if not lista_path:
@@ -330,31 +331,65 @@ async def banco_preview(
             for root, dirs, files in os.walk("."):
                 if "Lista_Punto_Venta.xlsx" in files:
                     lista_path = Path(root) / "Lista_Punto_Venta.xlsx"
+                    print(f"✅ Archivo Lista_Punto_Venta.xlsx encontrado en: {lista_path}")
                     break
         
-        if not lista_path:
-            raise HTTPException(status_code=500, detail="No se encontró el archivo Lista_Punto_Venta.xlsx")
-        try:
-            lista_df = pd.read_excel(lista_path, engine="openpyxl")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"No se pudo leer Lista_Punto_Venta.xlsx: {e}")
-
-        lista_df.columns = [str(c).strip().upper() for c in lista_df.columns]
-
-        # Extraer mapa {codigo: sucursal}
-        lista_df["CODIGO"] = lista_df["NÚMERO DE PUNTO DE VENTA"].astype(str).apply(extraer_codigo)
-        map_suc = dict(zip(lista_df["CODIGO"], lista_df["SUCURSAL"]))
+        map_suc = {}
+        if lista_path and lista_path.exists():
+            try:
+                lista_df = pd.read_excel(lista_path, engine="openpyxl")
+                lista_df.columns = [str(c).strip().upper() for c in lista_df.columns]
+                
+                # Buscar columna de número de punto de venta (flexible)
+                col_num_pos = None
+                for col in lista_df.columns:
+                    if "NÚMERO" in col and "PUNTO" in col and "VENTA" in col:
+                        col_num_pos = col
+                        break
+                    elif "NUMERO" in col and "POS" in col:
+                        col_num_pos = col
+                        break
+                
+                if col_num_pos:
+                    # Extraer mapa {codigo: sucursal}
+                    lista_df["CODIGO"] = lista_df[col_num_pos].astype(str).apply(extraer_codigo)
+                    
+                    # Buscar columna de sucursal
+                    col_sucursal = None
+                    for col in lista_df.columns:
+                        if "SUCURSAL" in col:
+                            col_sucursal = col
+                            break
+                    
+                    if col_sucursal:
+                        map_suc = dict(zip(lista_df["CODIGO"], lista_df[col_sucursal]))
+                        print(f"✅ Mapa de códigos cargado: {len(map_suc)} códigos")
+                    else:
+                        print(f"⚠️ No se encontró columna de SUCURSAL en Lista_Punto_Venta.xlsx")
+                else:
+                    print(f"⚠️ No se encontró columna de número de punto de venta en Lista_Punto_Venta.xlsx")
+            except Exception as e:
+                print(f"⚠️ Error leyendo Lista_Punto_Venta.xlsx: {e}, continuando sin mapeo de sucursales")
+        else:
+            print(f"⚠️ No se encontró el archivo Lista_Punto_Venta.xlsx, continuando sin mapeo de sucursales")
 
         # Asignar sucursal
-        df_proc["sucursal"] = df_proc["codigo"].map(map_suc).fillna("DESCONOCIDO")
+        if map_suc:
+            df_proc["sucursal"] = df_proc["codigo"].map(map_suc).fillna("DESCONOCIDO")
+        else:
+            # Si no hay mapa, asignar DESCONOCIDO a todos
+            df_proc["sucursal"] = "DESCONOCIDO"
+            print(f"⚠️ No se pudo cargar mapa de sucursales, todas las sucursales serán 'DESCONOCIDO'")
         
         # 🔍 DEBUG: Mostrar códigos que no se pudieron mapear
         desconocidos = df_proc[df_proc["sucursal"] == "DESCONOCIDO"]
         if len(desconocidos) > 0:
             codigos_desconocidos = desconocidos["codigo"].unique()
             print(f"⚠️ {len(desconocidos)} registros con sucursal DESCONOCIDO")
-            print(f"   Códigos no mapeados: {list(codigos_desconocidos)[:10]}")  # Primeros 10
-            print(f"   Ejemplo de descripción: {desconocidos.iloc[0]['descripcion']}")
+            if len(codigos_desconocidos) > 0:
+                print(f"   Códigos no mapeados: {list(codigos_desconocidos)[:10]}")  # Primeros 10
+                if len(desconocidos) > 0:
+                    print(f"   Ejemplo de descripción: {desconocidos.iloc[0]['descripcion']}")
 
         # 🔥 FILTRAR POR FECHA DEL CIERRE
         if fecha_cierre:
