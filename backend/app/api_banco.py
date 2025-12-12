@@ -44,7 +44,7 @@ def detectar_header_row(content, filename, columnas_esperadas=None):
     
     for header_row in range(30):
         try:
-            df_temp = read_file(content, filename, header=header_row)
+            df_temp = read_file(content, filename, sheet_name=0, header=header_row)  # Siempre usar hoja 1
             
             if df_temp.empty or len(df_temp.columns) < 2:
                 continue
@@ -87,7 +87,7 @@ def detectar_header_row(content, filename, columnas_esperadas=None):
     filas_comunes = [6, 0, 1, 2, 3]
     for fila in filas_comunes:
         try:
-            df_temp = read_file(content, filename, header=fila)
+            df_temp = read_file(content, filename, sheet_name=0, header=fila)  # Siempre usar hoja 1
             if not df_temp.empty and len(df_temp.columns) >= 2:
                 print(f"⚠️ No se detectó header automáticamente, usando fila {fila + 1} (índice {fila}) por defecto")
                 return fila
@@ -205,8 +205,9 @@ async def banco_preview(
         filename = file.filename or "archivo.xlsx"
         
         # 🔥 DETECTAR HEADER AUTOMÁTICAMENTE
+        # Siempre usar la primera hoja (índice 0 o nombre "Sheet1")
         header_row = detectar_header_row(content, filename)
-        df = read_file(content, filename, header=header_row)
+        df = read_file(content, filename, sheet_name=0, header=header_row)  # sheet_name=0 = primera hoja
 
         # Normalizar nombres de columnas (por si varían en tildes o mayúsculas)
         df.columns = [str(c).strip().lower() for c in df.columns]

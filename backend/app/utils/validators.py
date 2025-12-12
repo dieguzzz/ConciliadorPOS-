@@ -52,6 +52,9 @@ def clean_amount(value: Union[str, int, float, None]) -> Optional[float]:
 def clean_date(value: Union[str, datetime, pd.Timestamp, None]) -> Optional[str]:
     """
     Limpia y normaliza una fecha a formato DD/MM/YYYY (string).
+    Detecta y corrige automáticamente fechas con día/mes intercambiados.
+    Si detecta que una fecha es inválida (ej: 12/01/2025 cuando debería ser 01/12/2025),
+    intenta intercambiar día/mes automáticamente.
     Retorna None si no se puede parsear.
     """
     if value is None or pd.isna(value):
@@ -60,14 +63,31 @@ def clean_date(value: Union[str, datetime, pd.Timestamp, None]) -> Optional[str]
     # Si ya es un objeto date/datetime
     if isinstance(value, (datetime, pd.Timestamp)):
         try:
-            # Intentar interpretar como DD/MM/YYYY (intercambiar día y mes)
+            # Intentar interpretar como DD/MM/YYYY
             fecha_iso = value.strftime("%Y-%m-%d")
             year, month, day = fecha_iso.split("-")
-            # Intercambiar mes y día (Excel puede interpretar mal)
-            fecha_str = f"{day}/{month}/{year}"
-            # Validar que sea una fecha válida
-            dt = datetime.strptime(fecha_str, "%d/%m/%Y")
-            return dt.strftime("%d/%m/%Y")
+            
+            # Validar fecha original
+            try:
+                dt_original = datetime(int(year), int(month), int(day))
+                fecha_str = f"{day}/{month}/{year}"
+                # Si la fecha original es válida, usarla
+                return dt_original.strftime("%d/%m/%Y")
+            except ValueError:
+                # Si la fecha original no es válida, intentar intercambiar día/mes
+                try:
+                    dt_intercambiado = datetime(int(year), int(day), int(month))
+                    fecha_str = f"{month}/{day}/{year}"
+                    print(f"⚠️ Fecha corregida (intercambiado día/mes): {fecha_str}")
+                    return dt_intercambiado.strftime("%d/%m/%Y")
+                except ValueError:
+                    pass
+            
+            # Fallback: usar fecha tal cual
+            try:
+                return value.strftime("%d/%m/%Y")
+            except:
+                return None
         except:
             # Fallback: usar fecha tal cual
             try:
@@ -101,15 +121,75 @@ def clean_date(value: Union[str, datetime, pd.Timestamp, None]) -> Optional[str]
                     else:  # DD/MM/YYYY o DD-MM-YYYY
                         day, month, year = groups
                     
-                    dt = datetime(int(year), int(month), int(day))
-                    return dt.strftime("%d/%m/%Y")
+                    day_int = int(day)
+                    month_int = int(month)
+                    year_int = int(year)
+                    
+                    # Intentar primero con el orden original (DD/MM/YYYY)
+                    try:
+                        dt = datetime(year_int, month_int, day_int)
+                        # Validar que la fecha sea razonable (no muy futura, no muy antigua)
+                        fecha_actual = datetime.now()
+                        if dt.year > fecha_actual.year + 10 or dt.year < 2000:
+                            # Si la fecha es muy futura o muy antigua, puede estar al revés
+                            raise ValueError("Fecha fuera de rango razonable")
+                        return dt.strftime("%d/%m/%Y")
+                    except ValueError:
+                        # Si falla, intentar intercambiar día y mes
+                        # Ejemplo: 12/01/2025 -> 01/12/2025 (si 12 no es un mes válido)
+                        if month_int > 12 and day_int <= 12:
+                            # El mes es > 12, probablemente está al revés
+                            try:
+                                dt_corregido = datetime(year_int, day_int, month_int)
+                                fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
+                                print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
+                                return fecha_corregida
+                            except ValueError:
+                                pass
+                        elif day_int > 31 and month_int <= 12:
+                            # El día es > 31, probablemente está al revés
+                            try:
+                                dt_corregido = datetime(year_int, day_int, month_int)
+                                fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
+                                print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
+                                return fecha_corregida
+                            except ValueError:
+                                pass
+                        # Si ambos son válidos pero la fecha original no funciona, probar intercambio
+                        elif month_int <= 12 and day_int <= 31:
+                            try:
+                                dt_corregido = datetime(year_int, day_int, month_int)
+                                # Si la fecha corregida es más razonable (no muy futura)
+                                fecha_actual = datetime.now()
+                                if dt_corregido.year <= fecha_actual.year + 10:
+                                    fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
+                                    print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
+                                    return fecha_corregida
+                            except ValueError:
+                                pass
             except (ValueError, TypeError):
                 continue
     
-    # Último intento con pd.to_datetime
+    # Último intento con pd.to_datetime (con detección de intercambio)
     try:
+        # Intentar primero con dayfirst=True (DD/MM/YYYY)
         dt = pd.to_datetime(s, dayfirst=True)
-        return dt.strftime("%d/%m/%Y")
+        fecha_str = dt.strftime("%d/%m/%Y")
+        
+        # Validar que la fecha sea razonable
+        fecha_actual = datetime.now()
+        if dt.year > fecha_actual.year + 10:
+            # Si es muy futura, intentar sin dayfirst
+            try:
+                dt_alt = pd.to_datetime(s, dayfirst=False)
+                if dt_alt.year <= fecha_actual.year + 10:
+                    fecha_str_alt = dt_alt.strftime("%d/%m/%Y")
+                    print(f"⚠️ Fecha corregida (cambiado dayfirst): {s} -> {fecha_str_alt}")
+                    return fecha_str_alt
+            except:
+                pass
+        
+        return fecha_str
     except:
         return None
 
