@@ -27,6 +27,20 @@ export default function Home() {
   const yappyInputRef = useRef(null);
   const bancoInputRef = useRef(null);
 
+  // Función para obtener color según concepto
+  const getConceptoColor = (concepto) => {
+    const colores = {
+      "EFECTIVO": "#28a745",
+      "YAPPY": "#17a2b8",
+      "DEBITO (CLAVE)": "#6b5b95",
+      "CREDITO (VISA/MASTER)": "#ffc107",
+      "FONDO DE CAJA": "#dc3545",
+      "ACH": "#20c997",
+      "PEDIDOS YA": "#fd7e14"
+    };
+    return colores[concepto] || "#6c757d";
+  };
+
   // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
   const recargarCierre = async (file) => {
     if (!file) return;
@@ -500,14 +514,31 @@ export default function Home() {
                   {
                     key: "origen",
                     label: "Concepto",
-                    sortable: true
+                    sortable: true,
+                    render: (value, row) => (
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span style={{
+                          display: "inline-block",
+                          width: "8px",
+                          height: "8px",
+                          borderRadius: "50%",
+                          backgroundColor: getConceptoColor(value),
+                          flexShrink: 0
+                        }} />
+                        <strong style={{ color: "#333" }}>{value}</strong>
+                      </div>
+                    )
                   },
                   {
                     key: "monto",
                     label: "Monto",
                     sortable: true,
                     align: "right",
-                    render: (value) => `B/. ${value?.toFixed(2) || "0.00"}`
+                    render: (value) => (
+                      <span style={{ fontWeight: 600, color: "#6b5b95" }}>
+                        B/. {value?.toFixed(2) || "0.00"}
+                      </span>
+                    )
                   }
                 ]}
                 pagination={{ pageSize: 10, showPagination: dataCierre.tabla.length > 10 }}

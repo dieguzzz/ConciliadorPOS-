@@ -272,39 +272,86 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
             nombre = df_raw.iloc[f_idx, col_titulo_idx] if col_titulo_idx < len(df_raw.columns) else None
             monto = df_raw.iloc[f_idx, col_monto_idx] if col_monto_idx < len(df_raw.columns) else None
             
+            # 🔥 DETECTAR SI LAS COLUMNAS ESTÁN INTERCAMBIADAS
+            # Si "nombre" es numérico y "monto" es texto, están intercambiadas
+            nombre_es_num = False
+            monto_es_texto = False
+            
             if nombre is not None and pd.notna(nombre):
+                nombre_str = str(nombre).strip()
+                # Verificar si nombre es numérico (solo números, puntos, comas)
+                if re.match(r'^[\d\s\.,B/]+$', nombre_str) and _to_float(nombre) is not None:
+                    nombre_es_num = True
+                    
+            if monto is not None and pd.notna(monto):
+                monto_str = str(monto).strip()
+                # Verificar si monto es texto (no numérico, longitud > 3)
+                if len(monto_str) > 3 and not re.match(r'^[\d\s\.,B/]+$', monto_str):
+                    monto_es_texto = True
+            
+            # Si están intercambiadas, corregir
+            if nombre_es_num and monto_es_texto:
+                print(f"   ⚠️ Detectadas columnas intercambiadas en fila {f_idx+1}, corrigiendo...")
+                nombre, monto = monto, nombre
+                nombre_str = str(nombre).strip().upper() if nombre is not None and pd.notna(nombre) else ""
+            elif nombre is not None and pd.notna(nombre):
                 nombre_str = str(nombre).strip().upper()
-                # Solo detener si encontramos "TOTAL" en la columna de nombres Y tiene un monto válido
-                # Esto evita detenerse si "TOTAL" está en otra columna (como H13 que tiene "TOTAL" pero no es el bloque de Yappy)
-                if nombre_str == "TOTAL" or (nombre_str and "TOTAL" in nombre_str and len(nombre_str) < 20):
-                    # Verificar si hay un monto válido en esta fila (indica que es realmente el total del bloque)
-                    monto_val = _to_float(monto) if monto is not None and pd.notna(monto) else np.nan
-                    if pd.notna(monto_val) and monto_val > 0:
-                        print(f"   Encontrado TOTAL con monto válido en fila {f_idx+1} (idx {f_idx}), deteniendo lectura")
-                        break
+            else:
+                continue
+            
+            # Solo detener si encontramos "TOTAL" en la columna de nombres Y tiene un monto válido
+            if nombre_str == "TOTAL" or (nombre_str and "TOTAL" in nombre_str and len(nombre_str) < 20):
+                # Verificar si hay un monto válido en esta fila (indica que es realmente el total del bloque)
+                monto_val = _to_float(monto) if monto is not None and pd.notna(monto) else np.nan
+                if pd.notna(monto_val) and monto_val > 0:
+                    print(f"   Encontrado TOTAL con monto válido en fila {f_idx+1} (idx {f_idx}), deteniendo lectura")
+                    break
+                else:
+                    # Si es "TOTAL" pero no tiene monto, probablemente es un label en otra columna, continuar
+                    print(f"   Encontrado 'TOTAL' en fila {f_idx+1} pero sin monto válido, continuando...")
+                    continue
+            
+            # Validar que nombre no sea numérico
+            if nombre_str != "" and nombre_str not in ["NAN", "NONE", ""]:
+                # Si nombre es numérico, probablemente está leyendo mal, intentar buscar en columnas adyacentes
+                if re.match(r'^[\d\s\.,B/]+$', nombre_str) and _to_float(nombre) is not None:
+                    # Buscar texto en columnas adyacentes
+                    nombre_encontrado = None
+                    for col_offset in [-1, 1, -2, 2, -3, 3]:
+                        col_nombre_alt_idx = col_titulo_idx + col_offset
+                        if 0 <= col_nombre_alt_idx < len(df_raw.columns):
+                            nombre_alt = df_raw.iloc[f_idx, col_nombre_alt_idx]
+                            if nombre_alt is not None and pd.notna(nombre_alt):
+                                nombre_alt_str = str(nombre_alt).strip()
+                                # Si es texto (no numérico) y tiene longitud > 2
+                                if len(nombre_alt_str) > 2 and not re.match(r'^[\d\s\.,B/]+$', nombre_alt_str):
+                                    nombre_encontrado = nombre_alt_str
+                                    print(f"   ✅ Corregido: usando columna {chr(ord('A') + col_nombre_alt_idx)} para nombre en fila {f_idx+1}")
+                                    break
+                    if nombre_encontrado:
+                        nombre_str = nombre_encontrado.upper()
                     else:
-                        # Si es "TOTAL" pero no tiene monto, probablemente es un label en otra columna, continuar
-                        print(f"   Encontrado 'TOTAL' en fila {f_idx+1} pero sin monto válido, continuando...")
+                        # Si no encontramos texto, saltar esta fila
                         continue
                 
-                if nombre_str != "" and nombre_str not in ["NAN", "NONE", ""]:
-                    # Intentar leer monto de diferentes columnas si la principal está vacía
-                    val = _to_float(monto) if monto is not None and pd.notna(monto) else np.nan
-                    
-                    # Si no hay monto en la columna principal, buscar en columnas adyacentes
-                    if np.isnan(val) or val == 0:
-                        for col_offset in [0, 1, -1, 2, -2]:
-                            col_monto_alt_idx = col_monto_idx + col_offset
-                            if 0 <= col_monto_alt_idx < len(df_raw.columns):
-                                monto_alt = df_raw.iloc[f_idx, col_monto_alt_idx]
-                                val_alt = _to_float(monto_alt) if monto_alt is not None and pd.notna(monto_alt) else np.nan
-                                if not np.isnan(val_alt) and val_alt != 0:
-                                    val = val_alt
-                                    break
-                    
-                    if not np.isnan(val) and val != 0:
-                        items.append({"nombre": str(nombre).strip(), "monto": f"B/. {val:.2f}"})
-                        print(f"   ✅ Fila {f_idx+1} (idx {f_idx}): {nombre} = {val}")
+                # Intentar leer monto de diferentes columnas si la principal está vacía
+                val = _to_float(monto) if monto is not None and pd.notna(monto) else np.nan
+                
+                # Si no hay monto en la columna principal, buscar en columnas adyacentes
+                if np.isnan(val) or val == 0:
+                    for col_offset in [0, 1, -1, 2, -2]:
+                        col_monto_alt_idx = col_monto_idx + col_offset
+                        if 0 <= col_monto_alt_idx < len(df_raw.columns):
+                            monto_alt = df_raw.iloc[f_idx, col_monto_alt_idx]
+                            val_alt = _to_float(monto_alt) if monto_alt is not None and pd.notna(monto_alt) else np.nan
+                            if not np.isnan(val_alt) and val_alt != 0:
+                                val = val_alt
+                                break
+                
+                # Validar que nombre no sea numérico antes de agregar
+                if not re.match(r'^[\d\s\.,B/]+$', nombre_str) and not np.isnan(val) and val != 0:
+                    items.append({"nombre": str(nombre_str).strip(), "monto": f"B/. {val:.2f}"})
+                    print(f"   ✅ Fila {f_idx+1} (idx {f_idx}): {nombre_str} = {val}")
         
         # Buscar total en la fila final o cerca
         total_val = None

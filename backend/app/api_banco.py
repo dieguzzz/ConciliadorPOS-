@@ -396,9 +396,17 @@ async def banco_preview(
                 break
         
         if not lista_path:
-            # Intentar buscar en el directorio actual y subdirectorios
+            # Intentar buscar en el directorio actual y subdirectorios (limitado a 2 niveles para evitar demoras)
             import os
+            max_depth = 2
+            current_depth = 0
             for root, dirs, files in os.walk("."):
+                # Limitar profundidad
+                depth = root.count(os.sep) - ".".count(os.sep)
+                if depth > max_depth:
+                    dirs[:] = []  # No explorar más profundo
+                    continue
+                    
                 if "Lista_Punto_Venta.xlsx" in files:
                     lista_path = Path(root) / "Lista_Punto_Venta.xlsx"
                     print(f"✅ Archivo Lista_Punto_Venta.xlsx encontrado en: {lista_path}")
