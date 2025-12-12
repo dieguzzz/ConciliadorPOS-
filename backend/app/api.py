@@ -335,11 +335,12 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     detalle_ach, total_ach = _leer_bloque("M", "N", 13, 29, "N")  # M=nombre, N=monto, total en N29
     detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
 
-    # Los totales están en columna B (no a la derecha)
-    # Buscar de manera flexible: primero buscar el label en columna A, luego el valor en columna B
-    print(f"💰 Leyendo totales desde columna B:")
+    # Los totales están en columna B (labels) y C (valores), NO en A y B
+    # Según los logs: B13=EFECTIVO, C13=232.55
+    print(f"💰 Leyendo totales: labels en columna B, valores en columna C:")
+    print(f"   Dimensiones del DataFrame: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
     
-    # Buscar cada concepto de manera flexible
+    # Buscar cada concepto de manera flexible usando índices de pandas
     conceptos = [
         "EFECTIVO", "FONDO DE CAJA", "YAPPY", "DEBITO (CLAVE)", "CREDITO (VISA/MASTER)",
         "LINK WEB", "ACH", "PEDIDOS YA", "TOTAL CON PEYA", "TOTAL SIN PEYA",
@@ -348,19 +349,21 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     
     totales = {}
     
-    # DEBUG: Mostrar qué hay en columna A y B en las filas relevantes
-    print(f"   DEBUG: Valores en columnas A y B (filas 10-35):")
-    for fila_debug in range(10, min(36, len(df_raw) + 1)):
-        label_a = _get(df_raw, f"A{fila_debug}")
-        valor_b = _get(df_raw, f"B{fila_debug}")
-        if label_a or (valor_b and pd.notna(_to_float(valor_b))):
-            print(f"      Fila {fila_debug}: A='{label_a}', B='{valor_b}'")
+    # Usar índices de pandas directamente (0-based)
+    # Columna B = índice 1 (labels), Columna C = índice 2 (valores)
+    col_label_idx = 1  # B
+    col_valor_idx = 2  # C
     
-    # Buscar en las filas 10-35 (rango amplio)
-    for fila_buscar in range(10, min(36, len(df_raw) + 1)):
-        label_celda = _get(df_raw, f"A{fila_buscar}")
-        if label_celda:
+    # Buscar en las filas 12-34 (0-based: 11-33, que corresponde a filas 13-35 en Excel)
+    for fila_idx in range(11, min(35, len(df_raw))):
+        if col_label_idx >= len(df_raw.columns):
+            break
+            
+        label_celda = df_raw.iloc[fila_idx, col_label_idx] if fila_idx < len(df_raw) else None
+        
+        if label_celda is not None and pd.notna(label_celda):
             label_str = str(label_celda).strip().upper()
+            
             # Buscar si este label coincide con algún concepto
             for concepto in conceptos:
                 concepto_upper = concepto.upper()
@@ -369,23 +372,30 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
                     label_str in concepto_upper or
                     any(palabra in label_str for palabra in concepto_upper.split() if len(palabra) > 3)):
                     if concepto not in totales:
-                        # Encontrar el valor en columna B de la misma fila
-                        val = _get(df_raw, f"B{fila_buscar}")
-                        # Si no hay valor, buscar en columnas cercanas (B, C, D, E)
-                        if not val or pd.isna(_to_float(val)) or _to_float(val) == 0:
-                            for col_letter in ["B", "C", "D", "E"]:
-                                val_alt = _get(df_raw, f"{col_letter}{fila_buscar}")
-                                if val_alt and pd.notna(_to_float(val_alt)) and _to_float(val_alt) != 0:
-                                    val = val_alt
-                                    print(f"   {concepto}: valor encontrado en {col_letter}{fila_buscar} en lugar de B{fila_buscar}")
-                                    break
+                        # Encontrar el valor en columna C (índice 2) de la misma fila
+                        val = None
+                        if col_valor_idx < len(df_raw.columns):
+                            val = df_raw.iloc[fila_idx, col_valor_idx]
                         
-                        val_float = _to_float(val) if val else np.nan
+                        # Si no hay valor, buscar en columnas cercanas (C=2, D=3, E=4, B=1)
+                        if val is None or pd.isna(val) or (pd.notna(_to_float(val)) and _to_float(val) == 0):
+                            for col_idx in [2, 3, 4, 1]:  # C, D, E, B
+                                if col_idx < len(df_raw.columns):
+                                    val_alt = df_raw.iloc[fila_idx, col_idx]
+                                    if val_alt is not None and pd.notna(val_alt):
+                                        val_float_alt = _to_float(val_alt)
+                                        if pd.notna(val_float_alt) and val_float_alt != 0:
+                                            val = val_alt
+                                            col_letter = chr(ord('A') + col_idx)
+                                            print(f"   {concepto}: valor encontrado en {col_letter}{fila_idx+1} (col_idx {col_idx})")
+                                            break
+                        
+                        val_float = _to_float(val) if val is not None and pd.notna(val) else np.nan
                         if pd.notna(val_float) and not np.isnan(val_float) and val_float != 0:
                             totales[concepto] = round(float(val_float), 2)
-                            print(f"   ✅ {concepto} (fila {fila_buscar}, label='{label_celda}'): {val} -> {totales[concepto]}")
+                            print(f"   ✅ {concepto} (fila {fila_idx+1}, B='{label_celda}'): C={val} -> {totales[concepto]}")
                         else:
-                            print(f"   ⚠️ {concepto} (fila {fila_buscar}, label='{label_celda}'): valor no válido ({val})")
+                            print(f"   ⚠️ {concepto} (fila {fila_idx+1}, B='{label_celda}'): valor no válido en C ({val})")
                         break
     
     # Verificar qué conceptos no se encontraron
