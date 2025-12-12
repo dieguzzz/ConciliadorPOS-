@@ -337,10 +337,11 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         if row_data:
             print(f"   Fila {f_idx+1}: {' | '.join(row_data[:3])}")  # Primeros 3 valores
     
-    # Según la estructura del Excel mostrada:
-    # YAPPY: parece estar en columnas H-I (índices 7-8) pero necesitamos verificar
-    # Buscar YAPPY de manera más flexible
-    detalle_yappy, total_yappy = _leer_bloque("H", "I", 13, 29, "I")  # H=nombre, I=monto, total en I29
+    # Según los logs reales:
+    # Fila 15: J15=Maria Fernanda De Lo | K15=90.94
+    # Fila 16: J16=Cindy Ruiz | K16=25.15
+    # YAPPY está en columnas J (nombres, idx 9) y K (montos, idx 10)
+    detalle_yappy, total_yappy = _leer_bloque("J", "K", 13, 29, "K")  # J=nombre, K=monto, total en K29
     detalle_ach, total_ach = _leer_bloque("M", "N", 13, 29, "N")  # M=nombre, N=monto, total en N29
     detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
 
