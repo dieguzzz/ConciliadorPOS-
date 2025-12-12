@@ -8,6 +8,7 @@ import numpy as np
 import io, traceback, re
 import tempfile
 from app.utils.file_reader import read_file, get_excel_sheets, detect_file_type
+from app.utils.filename_parser import extraer_fecha_del_nombre, validar_y_corregir_fecha_con_nombre
 
 router = APIRouter()
 
@@ -71,8 +72,13 @@ def _to_float(v):
 
 # ========= PARSER CIERRE =========
 
-def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame):
-    """Lee el cierre por coordenadas (según layout Black Dog)."""
+def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = None):
+    """Lee el cierre por coordenadas (según layout Black Dog).
+    
+    Args:
+        df_raw: DataFrame con los datos del Excel
+        info_nombre: Información extraída del nombre del archivo (mes, año, etc.)
+    """
     df_str = df_raw.astype(str).fillna("")
     banner = " ".join(df_str.iloc[:12, :].values.flatten()).upper()
     if "CIERRE DE PUNTO DE VENTA" not in banner:
@@ -88,55 +94,47 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame):
     if fecha_v is not None:
         print(f"📅 Valor crudo de fecha: '{fecha_v}' (tipo: {type(fecha_v)})")
         
-        # 🔥 Si es Timestamp, necesitamos RE-INTERPRETAR como DD/MM/YYYY
+        # Convertir fecha_v a string para procesamiento
         if isinstance(fecha_v, pd.Timestamp):
-            # Excel guardó 11/09/2025 pero pandas lo interpretó como 2025-11-09
-            # Necesitamos extraer día y mes correctamente
-            # Convertir a string ISO y luego intercambiar día/mes
-            fecha_iso = fecha_v.strftime("%Y-%m-%d")  # "2025-11-09"
-            year, month, day = fecha_iso.split("-")
-            
-            # 🔥 INTERCAMBIAR: lo que pandas pensó que era mes, es realmente el día
-            fecha_str_original = f"{month}/{day}/{year}"  # "11/09/2025"
-            
-            try:
-                dt = datetime.strptime(fecha_str_original, "%d/%m/%Y")
-                fecha = dt.date()
-                print(f"✅ Fecha cierre (Timestamp corregido): '{fecha_v}' → '{fecha_str_original}' → {fecha}")
-            except Exception as e:
-                print(f"❌ Error corrigiendo timestamp: {e}")
-                # Fallback: usar el timestamp tal cual
-                fecha = fecha_v.date()
-                fecha_str_original = fecha_v.strftime("%d/%m/%Y")
-                
-        elif isinstance(fecha_v, datetime):
-            # Mismo tratamiento que Timestamp
             fecha_iso = fecha_v.strftime("%Y-%m-%d")
             year, month, day = fecha_iso.split("-")
-            fecha_str_original = f"{month}/{day}/{year}"
-            
-            try:
-                dt = datetime.strptime(fecha_str_original, "%d/%m/%Y")
-                fecha = dt.date()
-                print(f"✅ Fecha cierre (datetime corregido): '{fecha_v}' → '{fecha_str_original}' → {fecha}")
-            except Exception as e:
-                print(f"❌ Error corrigiendo datetime: {e}")
-                fecha = fecha_v.date()
-                fecha_str_original = fecha_v.strftime("%d/%m/%Y")
-                
+            # Intentar interpretar como DD/MM/YYYY (intercambiar mes y día)
+            fecha_str_original = f"{day}/{month}/{year}"
+        elif isinstance(fecha_v, datetime):
+            fecha_iso = fecha_v.strftime("%Y-%m-%d")
+            year, month, day = fecha_iso.split("-")
+            fecha_str_original = f"{day}/{month}/{year}"
         else:
-            # Si viene como string, parsear directamente
-            s = str(fecha_v).strip()
-            match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', s)
-            if match:
-                day, month, year = match.groups()
-                try:
-                    dt = datetime(int(year), int(month), int(day))
-                    fecha = dt.date()
-                    fecha_str_original = s
-                    print(f"✅ Fecha cierre parseada: '{s}' (DD/MM/YYYY) → {fecha}")
-                except Exception as e:
-                    print(f"❌ Error parseando fecha: {e}")
+            fecha_str_original = str(fecha_v).strip()
+        
+        # Si tenemos información del nombre del archivo, usarla para validar/corregir
+        if info_nombre and info_nombre.get('mes'):
+            fecha_corregida, fue_corregida = validar_y_corregir_fecha_con_nombre(
+                fecha_str_original,
+                info_nombre,
+                fecha_str_original
+            )
+            if fue_corregida:
+                fecha_str_original = fecha_corregida
+                print(f"✅ Fecha corregida usando nombre del archivo en parser: '{fecha_v}' → '{fecha_str_original}'")
+        
+        # Parsear la fecha final
+        try:
+            dt = datetime.strptime(fecha_str_original, "%d/%m/%Y")
+            fecha = dt.date()
+            print(f"✅ Fecha cierre final: '{fecha_str_original}' → {fecha}")
+        except ValueError:
+            # Si falla, intentar otros formatos
+            try:
+                dt = pd.to_datetime(fecha_str_original, dayfirst=True)
+                fecha = dt.date()
+                fecha_str_original = fecha.strftime("%d/%m/%Y")
+                print(f"✅ Fecha cierre (fallback): '{fecha_v}' → '{fecha_str_original}' → {fecha}")
+            except Exception as e:
+                print(f"❌ Error parseando fecha: {e}")
+                if isinstance(fecha_v, (datetime, pd.Timestamp)):
+                    fecha = fecha_v.date() if isinstance(fecha_v, datetime) else fecha_v.date()
+                    fecha_str_original = fecha.strftime("%d/%m/%Y")
 
     sucursal = (str(suc_v).strip().upper() if suc_v else "DESCONOCIDA")
 
@@ -349,6 +347,15 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
         filename = cierre.filename or "archivo.xlsx"
         file_type = detect_file_type(filename)
         
+        # 🔥 EXTRAER INFORMACIÓN DEL NOMBRE DEL ARCHIVO PRIMERO
+        info_nombre = extraer_fecha_del_nombre(filename)
+        if info_nombre:
+            print(f"📋 Información extraída del nombre '{filename}':")
+            print(f"   - Mes: {info_nombre.get('mes_nombre', info_nombre.get('mes'))}")
+            print(f"   - Año: {info_nombre.get('año')}")
+            if info_nombre.get('dia_inicio') and info_nombre.get('dia_fin'):
+                print(f"   - Rango de días: {info_nombre['dia_inicio']}-{info_nombre['dia_fin']}")
+        
         # === Selección de hoja (solo para Excel/ODS, no CSV) ===
         target = None
         available_sheets = []
@@ -383,7 +390,8 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
         print(f"📊 Forma del DataFrame: {df_raw.shape}")
         print(f"📋 Hojas disponibles: {available_sheets}")
         
-        parsed = parse_cierre_blackdog_posicional(df_raw)
+        # Pasar información del nombre al parser para validar fechas
+        parsed = parse_cierre_blackdog_posicional(df_raw, info_nombre=info_nombre)
         
         if not parsed:
             return {
@@ -397,6 +405,39 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
         # 🔥 GUARDAR LA FECHA ORIGINAL ANTES DE LIMPIAR
         fecha_original = parsed.get("meta", {}).get("fecha")
         print(f"📅 Fecha original del parser: '{fecha_original}' (tipo: {type(fecha_original)})")
+        
+        # 🔥 EXTRAER INFORMACIÓN DEL NOMBRE DEL ARCHIVO Y VALIDAR FECHA
+        info_nombre = extraer_fecha_del_nombre(filename)
+        fecha_final = fecha_original
+        
+        if info_nombre:
+            print(f"📋 Información extraída del nombre '{filename}':")
+            print(f"   - Mes: {info_nombre.get('mes_nombre', info_nombre.get('mes'))}")
+            print(f"   - Año: {info_nombre.get('año')}")
+            if info_nombre.get('dia_inicio') and info_nombre.get('dia_fin'):
+                print(f"   - Rango de días: {info_nombre['dia_inicio']}-{info_nombre['dia_fin']}")
+            
+            # Validar y corregir fecha usando información del nombre
+            if fecha_original:
+                # Convertir fecha_original a string si es necesario
+                if isinstance(fecha_original, (datetime, pd.Timestamp)):
+                    fecha_str = fecha_original.strftime("%d/%m/%Y") if isinstance(fecha_original, datetime) else fecha_original.strftime("%d/%m/%Y")
+                else:
+                    fecha_str = str(fecha_original)
+                
+                fecha_corregida, fue_corregida = validar_y_corregir_fecha_con_nombre(
+                    fecha_str,
+                    info_nombre,
+                    fecha_original
+                )
+                
+                if fue_corregida:
+                    fecha_final = fecha_corregida
+                    print(f"✅ Fecha corregida usando nombre del archivo: '{fecha_original}' -> '{fecha_final}'")
+                else:
+                    print(f"✅ Fecha validada correctamente: '{fecha_final}' coincide con el mes del nombre")
+        else:
+            print(f"⚠️ No se pudo extraer información de fecha del nombre del archivo")
 
         def limpiar(obj):
             if isinstance(obj, dict): 
@@ -415,7 +456,7 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
             "sheet": str(target) if target else "N/A",
             "available_sheets": available_sheets,
             "meta": {
-                "fecha": fecha_original,  # 🔥 NO LIMPIAR LA FECHA
+                "fecha": fecha_final,  # 🔥 USAR FECHA CORREGIDA/VALIDADA
                 "sucursal": parsed.get("meta", {}).get("sucursal"),
                 "cajero": parsed.get("meta", {}).get("cajero")
             },
