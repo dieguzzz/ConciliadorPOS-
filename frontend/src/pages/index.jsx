@@ -75,6 +75,120 @@ export default function Home() {
     };
   };
 
+  // Función para verificar si YAPPY del cierre matchea con el archivo Yappy
+  const verificarMatchYappy = (montoCierre) => {
+    if (!dataYappy?.preview || !Array.isArray(dataYappy.preview)) {
+      return null; // No hay datos de Yappy para comparar
+    }
+
+    if (!dataCierre?.meta?.fecha) {
+      return null; // No hay fecha del cierre para filtrar
+    }
+
+    // Convertir fecha del cierre a formato YYYY-MM-DD para comparar
+    const fechaCierre = dataCierre.meta.fecha;
+    let fechaCierreYMD = null;
+    
+    try {
+      // Intentar parsear DD/MM/YYYY
+      const [dia, mes, año] = fechaCierre.split("/");
+      if (dia && mes && año) {
+        fechaCierreYMD = `${año}-${mes.padStart(2, "0")}-${dia.padStart(2, "0")}`;
+      }
+    } catch (e) {
+      // Si ya está en formato YYYY-MM-DD, usarlo directamente
+      if (fechaCierre.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        fechaCierreYMD = fechaCierre;
+      }
+    }
+
+    if (!fechaCierreYMD) {
+      return null;
+    }
+
+    // Función helper para normalizar fechas
+    const toYMD = (v) => {
+      if (!v) return null;
+      if (v instanceof Date && !isNaN(v.getTime())) {
+        return v.toISOString().slice(0, 10);
+      }
+      if (typeof v === "number") {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const d = new Date(excelEpoch.getTime() + v * 86400000);
+        return !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+      }
+      let s = String(v).trim();
+      s = s.replace(/^(lun|mar|mi[eé]|jue|vie|s[aá]b|dom)\.?\s+/i, "").trim();
+      const ddmmyyyyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (ddmmyyyyMatch) {
+        const [, day, month, year] = ddmmyyyyMatch;
+        const d = new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day)));
+        if (!isNaN(d.getTime())) {
+          return d.toISOString().slice(0, 10);
+        }
+      }
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        return s.slice(0, 10);
+      }
+      const parsed = new Date(s);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+      }
+      return null;
+    };
+
+    // Filtrar transacciones Yappy por fecha y sumar montos
+    const getField = (row, key) => {
+      if (!row || typeof row !== "object") return undefined;
+      if (key in row) return row[key];
+      const k = Object.keys(row).find(
+        (x) => x.toLowerCase() === key.toLowerCase()
+      );
+      return k ? row[k] : undefined;
+    };
+
+    const parseNum = (val) => {
+      if (typeof val === "number") return val;
+      if (typeof val !== "string") return 0;
+      const cleaned = val.replace(/[^\d.-]/g, "");
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? 0 : num;
+    };
+
+    const yappyRows = dataYappy.preview.map((t) => {
+      const f =
+        getField(t, "fecha") ||
+        getField(t, "Fecha") ||
+        getField(t, "FECHA") ||
+        getField(t, "date");
+      const normal = toYMD(f);
+      return { ...t, _fechaYMD: normal };
+    });
+
+    // Filtrar por fecha del cierre
+    const filtered = yappyRows.filter((r) => {
+      const yappyClean = (r._fechaYMD || "").trim();
+      return yappyClean === fechaCierreYMD;
+    });
+
+    // Sumar todos los montos de las transacciones Yappy filtradas
+    const totalYappy = filtered.reduce((sum, r) => {
+      const total = getField(r, "total") || getField(r, "Total") || getField(r, "TOTAL") || 0;
+      return sum + parseNum(total);
+    }, 0);
+
+    // Comparar con tolerancia de 0.01 (para errores de redondeo)
+    const montoCierreNum = parseFloat(montoCierre) || 0;
+    const diferencia = Math.abs(totalYappy - montoCierreNum);
+    const matchea = diferencia <= 0.01;
+
+    return {
+      matchea,
+      totalYappy,
+      diferencia
+    };
+  };
+
   // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
   const recargarCierre = async (file) => {
     if (!file) return;
@@ -569,9 +683,15 @@ export default function Home() {
                     sortable: true,
                     align: "right",
                     render: (value, row) => {
-                      const matchInfo = verificarMatchBanco(row.origen, value);
+                      // Verificar match con banco
+                      const matchBanco = verificarMatchBanco(row.origen, value);
+                      // Verificar match con Yappy
+                      const matchYappy = row.origen === "YAPPY" ? verificarMatchYappy(value) : null;
+                      
+                      const matchInfo = matchBanco || matchYappy;
                       const tieneMatch = matchInfo !== null;
                       const matchea = matchInfo?.matchea;
+                      const esYappy = row.origen === "YAPPY";
 
                       return (
                         <div style={{ 
@@ -593,8 +713,12 @@ export default function Home() {
                                 alignItems: "center"
                               }}
                               title={matchea 
-                                ? `✅ Coincide con banco (B/. ${matchInfo.totalBanco.toFixed(2)})`
-                                : `❌ No coincide. Banco: B/. ${matchInfo.totalBanco.toFixed(2)}, Diferencia: B/. ${matchInfo.diferencia.toFixed(2)}`
+                                ? esYappy
+                                  ? `✅ Coincide con Yappy (B/. ${matchInfo.totalYappy.toFixed(2)})`
+                                  : `✅ Coincide con banco (B/. ${matchInfo.totalBanco.toFixed(2)})`
+                                : esYappy
+                                  ? `❌ No coincide. Yappy: B/. ${matchInfo.totalYappy.toFixed(2)}, Diferencia: B/. ${matchInfo.diferencia.toFixed(2)}`
+                                  : `❌ No coincide. Banco: B/. ${matchInfo.totalBanco.toFixed(2)}, Diferencia: B/. ${matchInfo.diferencia.toFixed(2)}`
                               }
                             >
                               {matchea ? "✅" : "❌"}
