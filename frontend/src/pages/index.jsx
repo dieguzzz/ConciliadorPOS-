@@ -41,6 +41,40 @@ export default function Home() {
     return colores[concepto] || "#6c757d";
   };
 
+  // Función para verificar si un concepto del cierre matchea con el banco
+  const verificarMatchBanco = (concepto, montoCierre) => {
+    if (!dataBanco?.data?.preview || !Array.isArray(dataBanco.data.preview)) {
+      return null; // No hay datos del banco para comparar
+    }
+
+    // Mapear conceptos del cierre a tipos del banco
+    const mapeoConceptos = {
+      "DEBITO (CLAVE)": "CLAVE",
+      "CREDITO (VISA/MASTER)": "VISA"
+    };
+
+    const tipoBanco = mapeoConceptos[concepto];
+    if (!tipoBanco) {
+      return null; // Este concepto no se compara con el banco
+    }
+
+    // Sumar todos los montos del banco del tipo correspondiente
+    const totalBanco = dataBanco.data.preview
+      .filter((r) => r.tipo === tipoBanco)
+      .reduce((sum, r) => sum + (parseFloat(r.monto) || 0), 0);
+
+    // Comparar con tolerancia de 0.01 (para errores de redondeo)
+    const montoCierreNum = parseFloat(montoCierre) || 0;
+    const diferencia = Math.abs(totalBanco - montoCierreNum);
+    const matchea = diferencia <= 0.01;
+
+    return {
+      matchea,
+      totalBanco,
+      diferencia
+    };
+  };
+
   // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
   const recargarCierre = async (file) => {
     if (!file) return;
@@ -534,11 +568,41 @@ export default function Home() {
                     label: "Monto",
                     sortable: true,
                     align: "right",
-                    render: (value) => (
-                      <span style={{ fontWeight: 600, color: "#6b5b95" }}>
-                        B/. {value?.toFixed(2) || "0.00"}
-                      </span>
-                    )
+                    render: (value, row) => {
+                      const matchInfo = verificarMatchBanco(row.origen, value);
+                      const tieneMatch = matchInfo !== null;
+                      const matchea = matchInfo?.matchea;
+
+                      return (
+                        <div style={{ 
+                          display: "flex", 
+                          alignItems: "center", 
+                          justifyContent: "flex-end",
+                          gap: "0.5rem"
+                        }}>
+                          <span style={{ fontWeight: 600, color: "#6b5b95" }}>
+                            B/. {value?.toFixed(2) || "0.00"}
+                          </span>
+                          {tieneMatch && (
+                            <span 
+                              style={{
+                                fontSize: "1.2rem",
+                                color: matchea ? "#28a745" : "#dc3545",
+                                cursor: matchea ? "default" : "pointer",
+                                display: "inline-flex",
+                                alignItems: "center"
+                              }}
+                              title={matchea 
+                                ? `✅ Coincide con banco (B/. ${matchInfo.totalBanco.toFixed(2)})`
+                                : `❌ No coincide. Banco: B/. ${matchInfo.totalBanco.toFixed(2)}, Diferencia: B/. ${matchInfo.diferencia.toFixed(2)}`
+                              }
+                            >
+                              {matchea ? "✅" : "❌"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }
                   }
                 ]}
                 pagination={{ pageSize: 10, showPagination: dataCierre.tabla.length > 10 }}
