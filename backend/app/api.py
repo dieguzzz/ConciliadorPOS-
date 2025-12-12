@@ -93,6 +93,19 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
             row_preview = [str(df_raw.iloc[i, j])[:30] if j < len(df_raw.columns) else "" for j in range(min(10, len(df_raw.columns)))]
             print(f"   Fila {i+1}: {row_preview}")
         return None
+    
+    # DEBUG: Mostrar preview de las filas importantes (10-30) para entender la estructura
+    print(f"\n📊 DEBUG: Preview del Excel (filas 10-30, columnas A-Q):")
+    print(f"   Dimensiones: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
+    for i in range(10, min(31, len(df_raw))):
+        row_data = []
+        for j in range(min(17, len(df_raw.columns))):  # A-Q = 17 columnas
+            val = df_raw.iloc[i, j] if j < len(df_raw.columns) else None
+            if pd.notna(val) and str(val).strip():
+                row_data.append(f"{chr(65+j)}{i+1}={str(val)[:15]}")
+        if row_data:
+            print(f"   Fila {i+1}: {' | '.join(row_data[:5])}")  # Mostrar primeros 5 valores
+    print()
 
     # Buscar cajero, fecha y sucursal de manera más flexible
     # Según la estructura real: Fila 6 tiene labels, Fila 7 tiene valores
