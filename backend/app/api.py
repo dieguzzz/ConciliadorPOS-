@@ -282,7 +282,6 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
                 fila = r + 1  # Convertir a 1-based
             except:
                 # Si falla, extraer número directamente de la celda
-                import re
                 match = re.search(r'(\d+)', celda)
                 fila = int(match.group(1)) if match else 13
             
