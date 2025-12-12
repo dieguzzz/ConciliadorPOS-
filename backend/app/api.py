@@ -80,13 +80,59 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         info_nombre: Información extraída del nombre del archivo (mes, año, etc.)
     """
     df_str = df_raw.astype(str).fillna("")
-    banner = " ".join(df_str.iloc[:12, :].values.flatten()).upper()
-    if "CIERRE DE PUNTO DE VENTA" not in banner:
+    
+    # Buscar banner en más filas (hasta 20 filas) para ser más flexible
+    banner = " ".join(df_str.iloc[:20, :].values.flatten()).upper()
+    tiene_banner = "CIERRE DE PUNTO DE VENTA" in banner or "CIERRE" in banner
+    
+    if not tiene_banner:
+        print(f"⚠️ No se encontró banner 'CIERRE DE PUNTO DE VENTA' en las primeras 20 filas")
+        print(f"   Dimensiones del DataFrame: {df_raw.shape}")
+        print(f"   Primeras 5 filas, primeras 10 columnas:")
+        for i in range(min(5, len(df_raw))):
+            row_preview = [str(df_raw.iloc[i, j])[:30] if j < len(df_raw.columns) else "" for j in range(min(10, len(df_raw.columns)))]
+            print(f"   Fila {i+1}: {row_preview}")
         return None
 
-    cajero = _below(df_raw, "E8") or _below(df_raw, "F8") or _below(df_raw, "G8")
-    fecha_v = _below(df_raw, "I8") or _below(df_raw, "J8") or _below(df_raw, "K8") or _below(df_raw, "L8")
-    suc_v = _below(df_raw, "N8") or _below(df_raw, "O8") or _below(df_raw, "P8") or _below(df_raw, "Q8")
+    # Buscar cajero, fecha y sucursal de manera más flexible
+    # Intentar múltiples filas alrededor de la fila 8
+    cajero = None
+    fecha_v = None
+    suc_v = None
+    
+    for fila_offset in range(-2, 3):  # Buscar desde fila 6 hasta 10
+        fila_base = 8 + fila_offset
+        if fila_base < 1 or fila_base >= len(df_raw):
+            continue
+            
+        # Buscar cajero
+        if not cajero:
+            for col in ["E", "F", "G", "D", "H"]:
+                cajero = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
+                if cajero and str(cajero).strip():
+                    break
+        
+        # Buscar fecha
+        if not fecha_v:
+            for col in ["I", "J", "K", "L", "H", "M"]:
+                fecha_v = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
+                if fecha_v and str(fecha_v).strip() and str(fecha_v).strip().upper() not in ["NAN", "NONE", ""]:
+                    break
+        
+        # Buscar sucursal
+        if not suc_v:
+            for col in ["N", "O", "P", "Q", "M", "R"]:
+                suc_v = _below(df_raw, f"{col}{fila_base}") or _get(df_raw, f"{col}{fila_base}")
+                if suc_v and str(suc_v).strip() and str(suc_v).strip().upper() not in ["NAN", "NONE", ""]:
+                    break
+        
+        if cajero and fecha_v and suc_v:
+            break
+    
+    print(f"📋 Datos encontrados:")
+    print(f"   Cajero: {cajero}")
+    print(f"   Fecha: {fecha_v} (tipo: {type(fecha_v).__name__})")
+    print(f"   Sucursal: {suc_v}")
 
     fecha = None
     fecha_str_original = None
