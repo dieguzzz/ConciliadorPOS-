@@ -335,12 +335,11 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
                     );
                     const bgColor = match?.color || "#fff";
 
-                    // Calcular total acumulado hasta esta fila
+                    // Calcular total acumulado hasta esta fila usando parseNum para consistencia
                     const totalAcumulado = detalleCierre
                       .slice(0, idx + 1)
                       .reduce((sum: number, it: any) => {
-                        const montoStr = it.monto || "0";
-                        const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
+                        const montoNum = parseNum(it.monto);
                         return sum + montoNum;
                       }, 0);
 
@@ -361,36 +360,34 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
                       </tr>
                     );
                   })}
-                  {/* Fila de total */}
-                  <tr style={{ 
-                    borderTop: "2px solid #333", 
-                    backgroundColor: "#f8f9fa",
-                    fontWeight: "bold"
-                  }}>
-                    <td style={{ ...styles.td, textAlign: "left", fontWeight: "bold" }}>
-                      TOTAL
-                    </td>
-                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold" }}>
-                      {(() => {
-                        const total = detalleCierre.reduce((sum: number, it: any) => {
-                          const montoStr = it.monto || "0";
-                          const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
-                          return sum + montoNum;
-                        }, 0);
-                        return `B/. ${total.toFixed(2)}`;
-                      })()}
-                    </td>
-                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", color: "#6b5b95" }}>
-                      {(() => {
-                        const total = detalleCierre.reduce((sum: number, it: any) => {
-                          const montoStr = it.monto || "0";
-                          const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
-                          return sum + montoNum;
-                        }, 0);
-                        return `B/. ${total.toFixed(2)}`;
-                      })()}
-                    </td>
-                  </tr>
+                  {/* Fila de total - calculado sumando los items mostrados */}
+                  {(() => {
+                    // Calcular total sumando solo los items que se están mostrando
+                    const totalCalculado = detalleCierre.reduce((sum: number, it: any) => {
+                      const montoStr = it.monto || "0";
+                      // Extraer número del monto (puede venir como "B/. 40.75" o solo número)
+                      const montoNum = parseNum(it.monto);
+                      return sum + montoNum;
+                    }, 0);
+                    
+                    return (
+                      <tr style={{ 
+                        borderTop: "2px solid #333", 
+                        backgroundColor: "#f8f9fa",
+                        fontWeight: "bold"
+                      }}>
+                        <td style={{ ...styles.td, textAlign: "left", fontWeight: "bold" }}>
+                          TOTAL
+                        </td>
+                        <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold" }}>
+                          {fmtMonto(totalCalculado)}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", color: "#6b5b95" }}>
+                          {fmtMonto(totalCalculado)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </>
               ) : (
                 <tr>
