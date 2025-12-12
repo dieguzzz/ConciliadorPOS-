@@ -335,9 +335,10 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     detalle_ach, total_ach = _leer_bloque("M", "N", 13, 29, "N")  # M=nombre, N=monto, total en N29
     detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
 
-    # Los totales están en columna B (labels) y C (valores), NO en A y B
-    # Según los logs: B13=EFECTIVO, C13=232.55
-    print(f"💰 Leyendo totales: labels en columna B, valores en columna C:")
+    # Detectar formato automáticamente: nuevo (B-C) o antiguo (A-B)
+    # Formato nuevo (diciembre): labels en B, valores en C
+    # Formato antiguo (noviembre): labels en A, valores en B
+    print(f"💰 Detectando formato y leyendo totales:")
     print(f"   Dimensiones del DataFrame: {df_raw.shape[0]} filas x {df_raw.shape[1]} columnas")
     
     # Buscar cada concepto de manera flexible usando índices de pandas
@@ -349,13 +350,45 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     
     totales = {}
     
-    # Usar índices de pandas directamente (0-based)
-    # Columna B = índice 1 (labels), Columna C = índice 2 (valores)
-    col_label_idx = 1  # B
-    col_valor_idx = 2  # C
+    # Detectar formato: buscar "EFECTIVO" en filas 10-20 en columna A o B
+    formato_detectado = None  # "nuevo" (B-C) o "antiguo" (A-B)
+    for fila_test in range(9, min(21, len(df_raw))):  # Filas 10-20
+        # Probar formato nuevo: B (labels) y C (valores)
+        label_b = df_raw.iloc[fila_test, 1] if 1 < len(df_raw.columns) else None
+        valor_c = df_raw.iloc[fila_test, 2] if 2 < len(df_raw.columns) else None
+        
+        # Probar formato antiguo: A (labels) y B (valores)
+        label_a = df_raw.iloc[fila_test, 0] if 0 < len(df_raw.columns) else None
+        valor_b = df_raw.iloc[fila_test, 1] if 1 < len(df_raw.columns) else None
+        
+        if label_b and pd.notna(label_b) and "EFECTIVO" in str(label_b).upper():
+            if valor_c and pd.notna(valor_c) and _to_float(valor_c) != 0:
+                formato_detectado = "nuevo"
+                print(f"   ✅ Formato NUEVO detectado (B-C): EFECTIVO en B{fila_test+1}, valor en C{fila_test+1}")
+                break
+        elif label_a and pd.notna(label_a) and "EFECTIVO" in str(label_a).upper():
+            if valor_b and pd.notna(valor_b) and _to_float(valor_b) != 0:
+                formato_detectado = "antiguo"
+                print(f"   ✅ Formato ANTIGUO detectado (A-B): EFECTIVO en A{fila_test+1}, valor en B{fila_test+1}")
+                break
     
-    # Buscar en las filas 12-34 (0-based: 11-33, que corresponde a filas 13-35 en Excel)
-    for fila_idx in range(11, min(35, len(df_raw))):
+    # Si no se detectó, intentar ambos formatos
+    if formato_detectado is None:
+        print(f"   ⚠️ No se pudo detectar formato automáticamente, intentando ambos formatos")
+        formato_detectado = "nuevo"  # Por defecto usar el nuevo
+    
+    # Leer totales según el formato detectado
+    if formato_detectado == "nuevo":
+        col_label_idx = 1  # B
+        col_valor_idx = 2  # C
+        print(f"   📊 Usando formato NUEVO: labels en columna B, valores en columna C")
+    else:
+        col_label_idx = 0  # A
+        col_valor_idx = 1  # B
+        print(f"   📊 Usando formato ANTIGUO: labels en columna A, valores en columna B")
+    
+    # Buscar en las filas 10-35 (0-based: 9-34)
+    for fila_idx in range(9, min(35, len(df_raw))):
         if col_label_idx >= len(df_raw.columns):
             break
             
@@ -372,15 +405,18 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
                     label_str in concepto_upper or
                     any(palabra in label_str for palabra in concepto_upper.split() if len(palabra) > 3)):
                     if concepto not in totales:
-                        # Encontrar el valor en columna C (índice 2) de la misma fila
+                        # Encontrar el valor en la columna de valores de la misma fila
                         val = None
                         if col_valor_idx < len(df_raw.columns):
                             val = df_raw.iloc[fila_idx, col_valor_idx]
                         
-                        # Si no hay valor, buscar en columnas cercanas (C=2, D=3, E=4, B=1)
+                        # Si no hay valor, buscar en columnas cercanas
                         if val is None or pd.isna(val) or (pd.notna(_to_float(val)) and _to_float(val) == 0):
-                            for col_idx in [2, 3, 4, 1]:  # C, D, E, B
-                                if col_idx < len(df_raw.columns):
+                            # Para formato nuevo: buscar en C, D, E, B
+                            # Para formato antiguo: buscar en B, C, D, A
+                            col_buscar = [col_valor_idx, col_valor_idx+1, col_valor_idx+2, col_label_idx] if formato_detectado == "nuevo" else [col_valor_idx, col_valor_idx+1, col_valor_idx+2, col_label_idx]
+                            for col_idx in col_buscar:
+                                if 0 <= col_idx < len(df_raw.columns):
                                     val_alt = df_raw.iloc[fila_idx, col_idx]
                                     if val_alt is not None and pd.notna(val_alt):
                                         val_float_alt = _to_float(val_alt)
@@ -393,9 +429,11 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
                         val_float = _to_float(val) if val is not None and pd.notna(val) else np.nan
                         if pd.notna(val_float) and not np.isnan(val_float) and val_float != 0:
                             totales[concepto] = round(float(val_float), 2)
-                            print(f"   ✅ {concepto} (fila {fila_idx+1}, B='{label_celda}'): C={val} -> {totales[concepto]}")
+                            col_label_letter = chr(ord('A') + col_label_idx)
+                            col_valor_letter = chr(ord('A') + col_valor_idx)
+                            print(f"   ✅ {concepto} (fila {fila_idx+1}, {col_label_letter}='{label_celda}'): {col_valor_letter}={val} -> {totales[concepto]}")
                         else:
-                            print(f"   ⚠️ {concepto} (fila {fila_idx+1}, B='{label_celda}'): valor no válido en C ({val})")
+                            print(f"   ⚠️ {concepto} (fila {fila_idx+1}, {col_label_letter}='{label_celda}'): valor no válido ({val})")
                         break
     
     # Verificar qué conceptos no se encontraron
