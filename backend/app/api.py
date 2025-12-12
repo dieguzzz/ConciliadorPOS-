@@ -522,29 +522,90 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
             "total": df_data.iloc[:, col_map["total"]],
         })
     else:
-        # Excel: buscar fila de encabezados
+        # Excel: buscar fila de encabezados de manera flexible
         print("📄 Detectado formato Excel - buscando fila de encabezados")
-        cols = {"fecha": 1, "referencia": 6, "cliente": 9, "celular": 12, "estado": 14, "total": 22}
-
+        
         start_row = None
+        header_row_idx = None
+        
+        # Buscar fila con encabezados
         for i, row in df_raw.iterrows():
             row_str = " ".join(str(x).strip().upper() for x in row if pd.notna(x))
-            if "FECHA" in row_str and "REFERENCIA" in row_str:
+            if "FECHA" in row_str and ("REFERENCIA" in row_str or "REF" in row_str):
+                header_row_idx = i
                 start_row = i + 1
                 break
-
+        
+        if start_row is None:
+            # Si no encuentra encabezados, intentar detectar columnas automáticamente
+            print("⚠️ No se encontró fila de encabezados, detectando columnas automáticamente...")
+            # Buscar en las primeras 10 filas patrones que indiquen datos
+            for i in range(min(10, len(df_raw))):
+                row_str = " ".join(str(x).strip().upper() for x in df_raw.iloc[i] if pd.notna(x))
+                if any(keyword in row_str for keyword in ["FECHA", "REFERENCIA", "CLIENTE", "CELULAR"]):
+                    header_row_idx = i
+                    start_row = i + 1
+                    break
+        
         if start_row is None:
             raise ValueError("❌ No se encontró la fila de encabezados en Yappy")
-
+        
+        print(f"✅ Fila de encabezados encontrada en fila {header_row_idx + 1}, datos empiezan en fila {start_row + 1}")
+        
+        # Detectar columnas automáticamente desde la fila de encabezados
+        cols = {}
+        if header_row_idx is not None and header_row_idx < len(df_raw):
+            header_row = df_raw.iloc[header_row_idx]
+            for idx, header in enumerate(header_row):
+                if pd.isna(header):
+                    continue
+                header_upper = str(header).strip().upper()
+                
+                # Buscar columnas de manera flexible
+                if "FECHA" in header_upper and "fecha" not in cols:
+                    cols["fecha"] = idx
+                elif ("REFERENCIA" in header_upper or "REF" in header_upper) and "referencia" not in cols:
+                    cols["referencia"] = idx
+                elif ("CLIENTE" in header_upper or "NOMBRE" in header_upper) and "cliente" not in cols:
+                    cols["cliente"] = idx
+                elif "CELULAR" in header_upper and "celular" not in cols:
+                    cols["celular"] = idx
+                elif "ESTADO" in header_upper and "estado" not in cols:
+                    cols["estado"] = idx
+                elif ("TOTAL" in header_upper or "MONTO" in header_upper or "IMPORTE" in header_upper) and "total" not in cols:
+                    if "SUB-TOTAL" not in header_upper:
+                        cols["total"] = idx
+        
+        # Si no se encontraron todas las columnas, usar valores por defecto o buscar en el contenido
+        default_cols = {"fecha": 1, "referencia": 6, "cliente": 9, "celular": 12, "estado": 14, "total": 22}
+        for key, default_val in default_cols.items():
+            if key not in cols:
+                cols[key] = default_val
+                print(f"⚠️ Columna '{key}' no detectada, usando columna {default_val} por defecto")
+        
+        print(f"📊 Columnas detectadas: {cols}")
+        
+        # Leer datos
         df_data = df_raw.iloc[start_row:].reset_index(drop=True)
+        
+        # Validar que las columnas existen
+        max_col = max(cols.values())
+        if max_col >= len(df_data.columns):
+            raise ValueError(f"❌ Columna {max_col} fuera de rango. El archivo tiene {len(df_data.columns)} columnas")
+        
         df_yappy = pd.DataFrame({
-            "fecha": df_data.iloc[:, cols["fecha"]],
-            "referencia": df_data.iloc[:, cols["referencia"]],
-            "cliente": df_data.iloc[:, cols["cliente"]],
-            "celular": df_data.iloc[:, cols["celular"]],
-            "estado": df_data.iloc[:, cols["estado"]],
-            "total": df_data.iloc[:, cols["total"]],
+            "fecha": df_data.iloc[:, cols["fecha"]] if cols["fecha"] < len(df_data.columns) else None,
+            "referencia": df_data.iloc[:, cols["referencia"]] if cols["referencia"] < len(df_data.columns) else None,
+            "cliente": df_data.iloc[:, cols["cliente"]] if cols["cliente"] < len(df_data.columns) else None,
+            "celular": df_data.iloc[:, cols["celular"]] if cols["celular"] < len(df_data.columns) else None,
+            "estado": df_data.iloc[:, cols["estado"]] if cols["estado"] < len(df_data.columns) else None,
+            "total": df_data.iloc[:, cols["total"]] if cols["total"] < len(df_data.columns) else None,
         })
+        
+        print(f"📊 Datos leídos: {len(df_yappy)} filas")
+        print(f"   Primeras 3 filas de muestra:")
+        for i in range(min(3, len(df_yappy))):
+            print(f"   Fila {i+1}: fecha={df_yappy.iloc[i]['fecha']}, cliente={df_yappy.iloc[i]['cliente']}, total={df_yappy.iloc[i]['total']}")
 
     def clean_fecha(v):
         if pd.isna(v): return None
