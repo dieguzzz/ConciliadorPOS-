@@ -224,18 +224,30 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
 
     def _leer_bloque(col_titulo, col_monto, fila_ini, fila_fin, col_total):
         items = []
-        for f in range(fila_ini, fila_fin):
+        print(f"🔍 Leyendo bloque: col_titulo={col_titulo}, col_monto={col_monto}, filas {fila_ini}-{fila_fin}, total en {col_total}{fila_fin}")
+        for f in range(fila_ini, min(fila_fin + 1, len(df_raw) + 1)):
             nombre = _get(df_raw, f"{col_titulo}{f}")
             monto = _get(df_raw, f"{col_monto}{f}")
-            if str(nombre).strip().upper() == "TOTAL":
+            if nombre and str(nombre).strip().upper() == "TOTAL":
+                print(f"   Encontrado TOTAL en fila {f}, deteniendo lectura")
                 break
-            if nombre and str(nombre).strip() != "" and monto not in (None, "", np.nan):
-                val = _to_float(monto)
-                if not np.isnan(val):
+            if nombre and str(nombre).strip() != "":
+                val = _to_float(monto) if monto not in (None, "", np.nan) else np.nan
+                if not np.isnan(val) and val != 0:
                     items.append({"nombre": str(nombre).strip(), "monto": f"B/. {val:.2f}"})
-        total_val = _get(df_raw, f"{col_total}{fila_fin}")
-        total_val_f = _to_float(total_val)
-        total_fmt = f"B/. {total_val_f:.2f}" if pd.notna(total_val_f) else None
+                    print(f"   Fila {f}: {nombre} = {val}")
+        
+        # Buscar total en la fila final o cerca
+        total_val = None
+        for offset in range(0, 5):  # Buscar en fila_fin y hasta 4 filas más abajo
+            total_val = _get(df_raw, f"{col_total}{fila_fin + offset}")
+            if total_val and pd.notna(_to_float(total_val)):
+                print(f"   Total encontrado en {col_total}{fila_fin + offset}: {total_val}")
+                break
+        
+        total_val_f = _to_float(total_val) if total_val else np.nan
+        total_fmt = f"B/. {total_val_f:.2f}" if pd.notna(total_val_f) and not np.isnan(total_val_f) else None
+        print(f"   Total del bloque: {total_fmt}, Items encontrados: {len(items)}")
         return items, total_fmt
 
     # Ajustar columnas según estructura real:
@@ -259,6 +271,7 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     ]
 
     totales = {}
+    print(f"💰 Leyendo totales desde columna B:")
     for nombre, celda, col_destino in lecturas:
         # Si col_destino es "B", buscar directamente en columna B
         # Si es "Derecha", buscar a la derecha
@@ -267,9 +280,20 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
             r, _ = _cell_to_rc(celda)
             fila = r + 1  # Convertir a 1-based
             val = _get(df_raw, f"B{fila}")
+            # También buscar en filas cercanas si no encuentra
+            if not val or pd.isna(_to_float(val)):
+                for offset in [-1, 1, -2, 2]:
+                    val_alt = _get(df_raw, f"B{fila + offset}")
+                    if val_alt and pd.notna(_to_float(val_alt)):
+                        val = val_alt
+                        print(f"   {nombre} (B{fila}): no encontrado, usando B{fila + offset} = {val}")
+                        break
         else:
             val = _right_of(df_raw, celda, max_steps=6) if col_destino == "Derecha" else _below(df_raw, celda, max_steps=6)
-        totales[nombre] = round(float(_to_float(val)), 2) if pd.notna(_to_float(val)) else np.nan
+        
+        val_float = _to_float(val) if val else np.nan
+        totales[nombre] = round(float(val_float), 2) if pd.notna(val_float) and not np.isnan(val_float) else np.nan
+        print(f"   {nombre} ({celda} -> B{fila if col_destino == 'B' else '?'}): {val} -> {totales[nombre]}")
 
     if total_yappy: totales["YAPPY"] = _to_float(total_yappy)
     if total_ach: totales["ACH"] = _to_float(total_ach)
