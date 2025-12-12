@@ -322,34 +322,79 @@ const ConciliacionYappy: React.FC<Props> = ({ cierre, yappy }) => {
               <tr style={styles.theadRow}>
                 <th style={{ ...styles.th, textAlign: "left" }}>Cliente</th>
                 <th style={{ ...styles.th, textAlign: "right" }}>Monto</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Total</th>
               </tr>
             </thead>
             <tbody>
               {detalleCierre.length > 0 ? (
-                detalleCierre.map((item: any, idx: number) => {
-                  // Buscar si este item tiene match
-                  const match = validMatches.find(
-                    (m) => m.cierreItem?.nombre === item.nombre
-                  );
-                  const bgColor = match?.color || "#fff";
+                <>
+                  {detalleCierre.map((item: any, idx: number) => {
+                    // Buscar si este item tiene match
+                    const match = validMatches.find(
+                      (m) => m.cierreItem?.nombre === item.nombre
+                    );
+                    const bgColor = match?.color || "#fff";
 
-                  return (
-                    <tr
-                      key={idx}
-                      style={{ borderBottom: "1px solid #eee", backgroundColor: bgColor }}
-                    >
-                      <td style={{ ...styles.td, textAlign: "left" }}>
-                        {item.nombre}
-                      </td>
-                      <td style={{ ...styles.td, textAlign: "right" }}>
-                        {item.monto}
-                      </td>
-                    </tr>
-                  );
-                })
+                    // Calcular total acumulado hasta esta fila
+                    const totalAcumulado = detalleCierre
+                      .slice(0, idx + 1)
+                      .reduce((sum: number, it: any) => {
+                        const montoStr = it.monto || "0";
+                        const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
+                        return sum + montoNum;
+                      }, 0);
+
+                    return (
+                      <tr
+                        key={idx}
+                        style={{ borderBottom: "1px solid #eee", backgroundColor: bgColor }}
+                      >
+                        <td style={{ ...styles.td, textAlign: "left" }}>
+                          {item.nombre}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: "right" }}>
+                          {item.monto}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: "right", fontWeight: 600, color: "#6b5b95" }}>
+                          B/. {totalAcumulado.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* Fila de total */}
+                  <tr style={{ 
+                    borderTop: "2px solid #333", 
+                    backgroundColor: "#f8f9fa",
+                    fontWeight: "bold"
+                  }}>
+                    <td style={{ ...styles.td, textAlign: "left", fontWeight: "bold" }}>
+                      TOTAL
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold" }}>
+                      {(() => {
+                        const total = detalleCierre.reduce((sum: number, it: any) => {
+                          const montoStr = it.monto || "0";
+                          const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
+                          return sum + montoNum;
+                        }, 0);
+                        return `B/. ${total.toFixed(2)}`;
+                      })()}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: "bold", color: "#6b5b95" }}>
+                      {(() => {
+                        const total = detalleCierre.reduce((sum: number, it: any) => {
+                          const montoStr = it.monto || "0";
+                          const montoNum = parseFloat(montoStr.replace(/[^\d.-]/g, "")) || 0;
+                          return sum + montoNum;
+                        }, 0);
+                        return `B/. ${total.toFixed(2)}`;
+                      })()}
+                    </td>
+                  </tr>
+                </>
               ) : (
                 <tr>
-                  <td colSpan={2} style={styles.empty}>
+                  <td colSpan={3} style={styles.empty}>
                     Sin Yappy en el cierre POS
                   </td>
                 </tr>
