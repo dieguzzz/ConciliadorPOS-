@@ -378,6 +378,24 @@ async def banco_preview(
             )
 
         print(f"📊 Total registros después de limpieza: {len(df_proc)}")
+        
+        # Mostrar muestra de datos antes de filtrar
+        if len(df_proc) > 0:
+            print(f"📊 Muestra de datos (primeras 3 filas antes de filtrar):")
+            for idx in range(min(3, len(df_proc))):
+                row = df_proc.iloc[idx]
+                print(f"   Fila {idx+1}: fecha={row['fecha']}, descripcion={str(row['descripcion'])[:50]}, monto={row['monto']}, tipo={row.get('tipo', 'N/A')}, codigo={row.get('codigo', 'N/A')}")
+            
+            # Mostrar fechas disponibles
+            fechas_disponibles = sorted(df_proc["fecha"].dropna().unique())
+            print(f"📅 Fechas disponibles en el archivo (primeras 10): {fechas_disponibles[:10]}")
+            
+            # Mostrar sucursales disponibles (si hay)
+            if "sucursal" in df_proc.columns:
+                sucursales_disponibles = df_proc["sucursal"].value_counts()
+                print(f"🏢 Sucursales disponibles (primeras 10):")
+                for suc, count in list(sucursales_disponibles.items())[:10]:
+                    print(f"   - {suc}: {count} registros")
 
         # --- Cargar lista de puntos de venta ---
         # Buscar el archivo en diferentes ubicaciones posibles
@@ -472,7 +490,10 @@ async def banco_preview(
         # 🔥 FILTRAR POR FECHA DEL CIERRE
         if fecha_cierre:
             print(f"🔍 DEBUG: Fecha cierre recibida: '{fecha_cierre}' (tipo: {type(fecha_cierre).__name__})")
+            print(f"📊 Registros ANTES de filtrar por fecha: {len(df_proc)}")
+            
             # Convertir fecha del cierre a date object
+            fecha_obj = None
             try:
                 # Intentar DD/MM/YYYY
                 fecha_obj = datetime.strptime(fecha_cierre, "%d/%m/%Y").date()
@@ -487,20 +508,24 @@ async def banco_preview(
                     print(f"❌ No se pudo parsear la fecha del cierre: {fecha_cierre}")
                     print(f"   Error DD/MM/YYYY: {e1}")
                     print(f"   Error YYYY-MM-DD: {e2}")
-                    fecha_obj = None
             
             if fecha_obj:
                 antes_fecha = len(df_proc)
+                
+                # Mostrar fechas disponibles antes de filtrar
+                fechas_antes = sorted(df_proc["fecha"].dropna().unique())
+                print(f"📅 Fechas disponibles ANTES de filtrar (primeras 10): {fechas_antes[:10]}")
+                
                 # Intentar primero con fecha exacta
                 df_filtrado = df_proc[df_proc["fecha"] == fecha_obj]
                 
-                # 🔥 Si no encuentra registros, buscar en rango de hasta 4 días
+                # 🔥 Si no encuentra registros, buscar en rango de hasta 7 días (aumentado de 4)
                 if len(df_filtrado) == 0:
                     print(f"⚠️ No se encontraron registros bancarios para {fecha_obj}")
-                    print(f"   Buscando en rango de hasta 4 días...")
+                    print(f"   Buscando en rango de hasta 7 días...")
                     
-                    fecha_inicio = fecha_obj
-                    fecha_fin = fecha_obj + timedelta(days=4)
+                    fecha_inicio = fecha_obj - timedelta(days=2)  # Buscar 2 días antes también
+                    fecha_fin = fecha_obj + timedelta(days=5)     # Y 5 días después
                     
                     df_filtrado = df_proc[
                         (df_proc["fecha"] >= fecha_inicio) & 
@@ -512,14 +537,23 @@ async def banco_preview(
                         print(f"✅ Encontrados {len(df_filtrado)} registros en rango {fecha_inicio} a {fecha_fin}")
                         print(f"   Fechas con registros: {fechas_encontradas}")
                     else:
-                        print(f"❌ No se encontraron registros ni en el rango de 4 días")
+                        print(f"❌ No se encontraron registros ni en el rango ampliado")
+                        print(f"   Considerando mostrar todos los registros para debugging...")
+                        # Si no hay filtro de sucursal, mostrar todos los registros para que el usuario vea qué hay
+                        if not sucursal_cierre:
+                            print(f"   ⚠️ No hay filtro de sucursal, mostrando todos los registros disponibles")
+                            df_filtrado = df_proc  # Mostrar todos si no hay filtro de sucursal
                 else:
                     print(f"✅ Filtrado por fecha {fecha_obj}: {len(df_filtrado)} de {antes_fecha} registros")
                 
                 df_proc = df_filtrado
+            else:
+                print(f"⚠️ No se pudo parsear fecha, continuando sin filtrar por fecha")
 
         # 🔥 FILTRAR POR SUCURSAL DEL CIERRE
         if sucursal_cierre:
+            print(f"📊 Registros ANTES de filtrar por sucursal: {len(df_proc)}")
+            
             # Mostrar qué sucursales se detectaron ANTES de filtrar
             sucursales_detectadas = df_proc["sucursal"].value_counts()
             print(f"🏢 Sucursales detectadas en los registros filtrados por fecha:")
@@ -532,17 +566,51 @@ async def banco_preview(
             df_proc["sucursal_norm"] = df_proc["sucursal"].apply(normalizar_sucursal)
             
             antes_sucursal = len(df_proc)
-            # 🔥 FILTRAR: Mostrar SOLO los de la sucursal del cierre
-            df_proc = df_proc[df_proc["sucursal_norm"] == sucursal_norm]
             
-            print(f"✅ Filtrado por sucursal '{sucursal_cierre}': {len(df_proc)} de {antes_sucursal} registros")
+            # 🔥 FILTRAR: Intentar coincidencia exacta primero
+            df_filtrado_suc = df_proc[df_proc["sucursal_norm"] == sucursal_norm]
+            
+            # Si no encuentra, intentar coincidencia parcial (fuzzy)
+            if len(df_filtrado_suc) == 0:
+                print(f"⚠️ No se encontraron registros con coincidencia exacta para '{sucursal_norm}'")
+                print(f"   Intentando coincidencia parcial...")
+                
+                # Buscar sucursales que contengan palabras clave de la sucursal buscada
+                palabras_sucursal = set(sucursal_norm.split())
+                mejor_match = None
+                mejor_score = 0
+                
+                for suc_disp in sucursales_detectadas.index:
+                    palabras_disp = set(normalizar_sucursal(suc_disp).split())
+                    # Calcular intersección de palabras
+                    palabras_comunes = palabras_sucursal.intersection(palabras_disp)
+                    if palabras_comunes:
+                        score = len(palabras_comunes) / max(len(palabras_sucursal), len(palabras_disp))
+                        if score > mejor_score and score > 0.3:  # Al menos 30% de coincidencia
+                            mejor_score = score
+                            mejor_match = suc_disp
+                
+                if mejor_match:
+                    print(f"   ✅ Encontrada coincidencia parcial: '{mejor_match}' (score: {mejor_score:.1%})")
+                    df_filtrado_suc = df_proc[df_proc["sucursal"] == mejor_match]
+                else:
+                    print(f"   ❌ No se encontró coincidencia parcial")
+                    # Si no hay filtro de fecha o la fecha no encontró nada, mostrar todos
+                    if not fecha_cierre or len(df_proc) == 0:
+                        print(f"   ⚠️ Mostrando todos los registros disponibles para debugging")
+                        df_filtrado_suc = df_proc
+            else:
+                print(f"✅ Filtrado por sucursal '{sucursal_cierre}': {len(df_filtrado_suc)} de {antes_sucursal} registros")
+            
+            df_proc = df_filtrado_suc
             
             if len(df_proc) == 0:
                 print(f"⚠️ ADVERTENCIA: No se encontraron registros para la sucursal '{sucursal_cierre}'")
-                print(f"   Sucursales disponibles en esa fecha: {list(sucursales_detectadas.index)}")
+                print(f"   Sucursales disponibles: {list(sucursales_detectadas.index)}")
             else:
-                # Eliminar columna temporal
-                df_proc = df_proc.drop(columns=["sucursal_norm"])
+                # Eliminar columna temporal si existe
+                if "sucursal_norm" in df_proc.columns:
+                    df_proc = df_proc.drop(columns=["sucursal_norm"])
 
         # Limpiar duplicados y resetear índice
         df_proc = df_proc.drop_duplicates().reset_index(drop=True)
@@ -567,6 +635,20 @@ async def banco_preview(
             for col_type, detection in detections.items()
             if detection["column_index"] is not None
         }
+        
+        # Información de diagnóstico
+        diagnostic_info = {}
+        if len(preview) == 0 and len(df_proc) > 0:
+            # Si no hay resultados después de filtrar pero sí hay datos antes, agregar información útil
+            try:
+                diagnostic_info = {
+                    "total_registros_despues_limpieza": len(df_proc),
+                    "fechas_disponibles": sorted(df_proc["fecha"].dropna().unique().tolist()[:10]) if "fecha" in df_proc.columns else [],
+                    "sucursales_disponibles": dict(df_proc["sucursal"].value_counts().head(10)) if "sucursal" in df_proc.columns else {}
+                }
+                print(f"📊 Información de diagnóstico: {diagnostic_info}")
+            except Exception as e:
+                print(f"⚠️ Error generando información de diagnóstico: {e}")
 
         return success_response(
             data={
@@ -581,9 +663,10 @@ async def banco_preview(
                 "validation_results": {
                     "overall_valid": validation.get("overall_valid", True),
                     "warnings": validation.get("warnings", [])
-                }
+                },
+                "diagnostic": diagnostic_info if diagnostic_info else None
             },
-            message=f"Archivo procesado: {len(preview)} registros coinciden",
+            message=f"Archivo procesado: {len(preview)} registros coinciden" if len(preview) > 0 else "No se encontraron registros que coincidan con los filtros aplicados",
             warnings=validation.get("warnings", []),
             request_id=request_id,
             start_time=start_time

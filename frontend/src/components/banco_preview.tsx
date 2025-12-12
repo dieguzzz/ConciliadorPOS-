@@ -10,7 +10,48 @@ export default function BancoPreview({ data }: BancoPreviewProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
-  if (!data || !data.preview) return null;
+  if (!data || !data.preview) {
+    // Mostrar información de diagnóstico si no hay preview
+    if (data && data.diagnostic) {
+      return (
+        <div style={styles.wrapper}>
+          <h2 style={styles.title}>🏦 Movimientos Bancarios</h2>
+          <div style={{ 
+            padding: "1.5rem", 
+            background: "#fff3cd", 
+            borderRadius: "8px",
+            border: "1px solid #ffc107"
+          }}>
+            <h3 style={{ marginTop: 0, color: "#856404" }}>⚠️ No se encontraron registros</h3>
+            <p style={{ color: "#856404", marginBottom: "0.5rem" }}>
+              No se encontraron registros que coincidan con los filtros aplicados.
+            </p>
+            {data.diagnostic.fechas_disponibles && data.diagnostic.fechas_disponibles.length > 0 && (
+              <div style={{ marginTop: "1rem" }}>
+                <strong>Fechas disponibles en el archivo:</strong>
+                <ul style={{ marginTop: "0.5rem" }}>
+                  {data.diagnostic.fechas_disponibles.map((fecha: string, idx: number) => (
+                    <li key={idx}>{fecha}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {data.diagnostic.sucursales_disponibles && Object.keys(data.diagnostic.sucursales_disponibles).length > 0 && (
+              <div style={{ marginTop: "1rem" }}>
+                <strong>Sucursales disponibles:</strong>
+                <ul style={{ marginTop: "0.5rem" }}>
+                  {Object.entries(data.diagnostic.sucursales_disponibles).map(([suc, count]: [string, any]) => (
+                    <li key={suc}>{suc}: {count} registros</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const { total_registros, preview, filtros } = data;
 
