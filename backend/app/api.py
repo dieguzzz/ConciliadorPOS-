@@ -225,29 +225,49 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     def _leer_bloque(col_titulo, col_monto, fila_ini, fila_fin, col_total):
         items = []
         print(f"🔍 Leyendo bloque: col_titulo={col_titulo}, col_monto={col_monto}, filas {fila_ini}-{fila_fin}, total en {col_total}{fila_fin}")
-        for f in range(fila_ini, min(fila_fin + 1, len(df_raw) + 1)):
+        
+        # Buscar de manera más flexible: buscar en un rango amplio
+        for f in range(max(1, fila_ini - 2), min(fila_fin + 10, len(df_raw) + 1)):
             nombre = _get(df_raw, f"{col_titulo}{f}")
             monto = _get(df_raw, f"{col_monto}{f}")
-            if nombre and str(nombre).strip().upper() == "TOTAL":
-                print(f"   Encontrado TOTAL en fila {f}, deteniendo lectura")
-                break
-            if nombre and str(nombre).strip() != "":
-                val = _to_float(monto) if monto not in (None, "", np.nan) else np.nan
-                if not np.isnan(val) and val != 0:
-                    items.append({"nombre": str(nombre).strip(), "monto": f"B/. {val:.2f}"})
-                    print(f"   Fila {f}: {nombre} = {val}")
+            
+            if nombre:
+                nombre_str = str(nombre).strip().upper()
+                if nombre_str == "TOTAL" or (nombre_str and "TOTAL" in nombre_str and len(nombre_str) < 20):
+                    print(f"   Encontrado TOTAL en fila {f}, deteniendo lectura")
+                    break
+                
+                if nombre_str != "" and nombre_str not in ["NAN", "NONE", ""]:
+                    # Intentar leer monto de diferentes columnas si la principal está vacía
+                    val = _to_float(monto) if monto not in (None, "", np.nan) else np.nan
+                    
+                    # Si no hay monto en la columna principal, buscar en columnas adyacentes
+                    if np.isnan(val) or val == 0:
+                        for col_offset in [0, 1, -1, 2, -2]:
+                            col_monto_idx = ord(col_monto) - ord('A') + col_offset
+                            if col_monto_idx >= 0 and col_monto_idx < len(df_raw.columns):
+                                col_monto_alt = chr(ord('A') + col_monto_idx)
+                                monto_alt = _get(df_raw, f"{col_monto_alt}{f}")
+                                val_alt = _to_float(monto_alt) if monto_alt not in (None, "", np.nan) else np.nan
+                                if not np.isnan(val_alt) and val_alt != 0:
+                                    val = val_alt
+                                    break
+                    
+                    if not np.isnan(val) and val != 0:
+                        items.append({"nombre": str(nombre).strip(), "monto": f"B/. {val:.2f}"})
+                        print(f"   ✅ Fila {f}: {nombre} = {val}")
         
         # Buscar total en la fila final o cerca
         total_val = None
-        for offset in range(0, 5):  # Buscar en fila_fin y hasta 4 filas más abajo
+        for offset in range(0, 10):  # Buscar en fila_fin y hasta 9 filas más abajo
             total_val = _get(df_raw, f"{col_total}{fila_fin + offset}")
-            if total_val and pd.notna(_to_float(total_val)):
-                print(f"   Total encontrado en {col_total}{fila_fin + offset}: {total_val}")
+            if total_val and pd.notna(_to_float(total_val)) and _to_float(total_val) != 0:
+                print(f"   ✅ Total encontrado en {col_total}{fila_fin + offset}: {total_val}")
                 break
         
         total_val_f = _to_float(total_val) if total_val else np.nan
         total_fmt = f"B/. {total_val_f:.2f}" if pd.notna(total_val_f) and not np.isnan(total_val_f) else None
-        print(f"   Total del bloque: {total_fmt}, Items encontrados: {len(items)}")
+        print(f"   📊 Total del bloque: {total_fmt}, Items encontrados: {len(items)}")
         return items, total_fmt
 
     # Ajustar columnas según estructura real:
