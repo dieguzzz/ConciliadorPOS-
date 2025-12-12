@@ -259,49 +259,52 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     detalle_pedidosya, total_pedya = _leer_bloque("P", "Q", 13, 29, "Q")  # P=nombre, Q=monto, total en Q29
 
     # Los totales están en columna B (no a la derecha)
-    # Buscar de manera flexible en columna B
-    lecturas = [
-        ("EFECTIVO", "A13", "B"), ("FONDO DE CAJA", "A14", "B"),
-        ("YAPPY", "A15", "B"), ("DEBITO (CLAVE)", "A16", "B"), 
-        ("CREDITO (VISA/MASTER)", "A17", "B"), ("LINK WEB", "A18", "B"),
-        ("ACH", "A19", "B"), ("PEDIDOS YA", "A20", "B"),
-        ("TOTAL CON PEYA", "A21", "B"), ("TOTAL SIN PEYA", "A22", "B"),
-        ("TOTAL DE INGRESO", "A24", "B"), ("CIERRE DEL SISTEMA", "A25", "B"),
-        ("DIFERENCIA", "A26", "B"), ("A DEPOSITAR EN EFECTIVO", "A28", "B"),
-    ]
-
-    totales = {}
+    # Buscar de manera flexible: primero buscar el label en columna A, luego el valor en columna B
     print(f"💰 Leyendo totales desde columna B:")
-    for nombre, celda, col_destino in lecturas:
-        # Si col_destino es "B", buscar directamente en columna B
-        # Si es "Derecha", buscar a la derecha
-        if col_destino == "B":
-            # Extraer fila de celda (ej: "A13" -> fila 13)
-            try:
-                r, _ = _cell_to_rc(celda)
-                fila = r + 1  # Convertir a 1-based
-            except:
-                # Si falla, extraer número directamente de la celda
-                match = re.search(r'(\d+)', celda)
-                fila = int(match.group(1)) if match else 13
-            
-            val = _get(df_raw, f"B{fila}")
-            # También buscar en filas cercanas si no encuentra
-            if not val or (val and pd.isna(_to_float(val))):
-                for offset in [-1, 1, -2, 2]:
-                    fila_alt = fila + offset
-                    if fila_alt > 0:
-                        val_alt = _get(df_raw, f"B{fila_alt}")
-                        if val_alt and pd.notna(_to_float(val_alt)) and _to_float(val_alt) != 0:
-                            val = val_alt
-                            print(f"   {nombre} (B{fila}): no encontrado, usando B{fila_alt} = {val}")
-                            break
-        else:
-            val = _right_of(df_raw, celda, max_steps=6) if col_destino == "Derecha" else _below(df_raw, celda, max_steps=6)
-        
-        val_float = _to_float(val) if val else np.nan
-        totales[nombre] = round(float(val_float), 2) if pd.notna(val_float) and not np.isnan(val_float) else np.nan
-        print(f"   {nombre} ({celda} -> B{fila if col_destino == 'B' else '?'}): {val} -> {totales[nombre]}")
+    
+    # Buscar cada concepto de manera flexible
+    conceptos = [
+        "EFECTIVO", "FONDO DE CAJA", "YAPPY", "DEBITO (CLAVE)", "CREDITO (VISA/MASTER)",
+        "LINK WEB", "ACH", "PEDIDOS YA", "TOTAL CON PEYA", "TOTAL SIN PEYA",
+        "TOTAL DE INGRESO", "CIERRE DEL SISTEMA", "DIFERENCIA", "A DEPOSITAR EN EFECTIVO"
+    ]
+    
+    totales = {}
+    
+    # Buscar en las filas 10-35 (rango amplio)
+    for fila_buscar in range(10, min(36, len(df_raw) + 1)):
+        label_celda = _get(df_raw, f"A{fila_buscar}")
+        if label_celda:
+            label_str = str(label_celda).strip().upper()
+            # Buscar si este label coincide con algún concepto
+            for concepto in conceptos:
+                if concepto.upper() in label_str and concepto not in totales:
+                    # Encontrar el valor en columna B de la misma fila
+                    val = _get(df_raw, f"B{fila_buscar}")
+                    # Si no hay valor, buscar en columnas cercanas
+                    if not val or pd.isna(_to_float(val)):
+                        for col_offset in [0, 1, -1, 2, -2]:
+                            col_idx = ord('B') - ord('A') + col_offset
+                            if col_idx >= 0 and col_idx < len(df_raw.columns):
+                                col_letter = chr(ord('A') + col_idx)
+                                val_alt = _get(df_raw, f"{col_letter}{fila_buscar}")
+                                if val_alt and pd.notna(_to_float(val_alt)) and _to_float(val_alt) != 0:
+                                    val = val_alt
+                                    break
+                    
+                    val_float = _to_float(val) if val else np.nan
+                    if pd.notna(val_float) and not np.isnan(val_float):
+                        totales[concepto] = round(float(val_float), 2)
+                        print(f"   ✅ {concepto} (fila {fila_buscar}): {val} -> {totales[concepto]}")
+                    else:
+                        print(f"   ⚠️ {concepto} (fila {fila_buscar}): no se encontró valor válido")
+                    break
+    
+    # Verificar qué conceptos no se encontraron
+    for concepto in conceptos:
+        if concepto not in totales:
+            totales[concepto] = np.nan
+            print(f"   ❌ {concepto}: no encontrado")
 
     if total_yappy: totales["YAPPY"] = _to_float(total_yappy)
     if total_ach: totales["ACH"] = _to_float(total_ach)
