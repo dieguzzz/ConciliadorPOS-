@@ -304,6 +304,14 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
     
     totales = {}
     
+    # DEBUG: Mostrar qué hay en columna A y B en las filas relevantes
+    print(f"   DEBUG: Valores en columnas A y B (filas 10-35):")
+    for fila_debug in range(10, min(36, len(df_raw) + 1)):
+        label_a = _get(df_raw, f"A{fila_debug}")
+        valor_b = _get(df_raw, f"B{fila_debug}")
+        if label_a or (valor_b and pd.notna(_to_float(valor_b))):
+            print(f"      Fila {fila_debug}: A='{label_a}', B='{valor_b}'")
+    
     # Buscar en las filas 10-35 (rango amplio)
     for fila_buscar in range(10, min(36, len(df_raw) + 1)):
         label_celda = _get(df_raw, f"A{fila_buscar}")
@@ -311,33 +319,36 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
             label_str = str(label_celda).strip().upper()
             # Buscar si este label coincide con algún concepto
             for concepto in conceptos:
-                if concepto.upper() in label_str and concepto not in totales:
-                    # Encontrar el valor en columna B de la misma fila
-                    val = _get(df_raw, f"B{fila_buscar}")
-                    # Si no hay valor, buscar en columnas cercanas
-                    if not val or pd.isna(_to_float(val)):
-                        for col_offset in [0, 1, -1, 2, -2]:
-                            col_idx = ord('B') - ord('A') + col_offset
-                            if col_idx >= 0 and col_idx < len(df_raw.columns):
-                                col_letter = chr(ord('A') + col_idx)
+                concepto_upper = concepto.upper()
+                # Buscar coincidencias más flexibles
+                if (concepto_upper in label_str or 
+                    label_str in concepto_upper or
+                    any(palabra in label_str for palabra in concepto_upper.split() if len(palabra) > 3)):
+                    if concepto not in totales:
+                        # Encontrar el valor en columna B de la misma fila
+                        val = _get(df_raw, f"B{fila_buscar}")
+                        # Si no hay valor, buscar en columnas cercanas (B, C, D, E)
+                        if not val or pd.isna(_to_float(val)) or _to_float(val) == 0:
+                            for col_letter in ["B", "C", "D", "E"]:
                                 val_alt = _get(df_raw, f"{col_letter}{fila_buscar}")
                                 if val_alt and pd.notna(_to_float(val_alt)) and _to_float(val_alt) != 0:
                                     val = val_alt
+                                    print(f"   {concepto}: valor encontrado en {col_letter}{fila_buscar} en lugar de B{fila_buscar}")
                                     break
-                    
-                    val_float = _to_float(val) if val else np.nan
-                    if pd.notna(val_float) and not np.isnan(val_float):
-                        totales[concepto] = round(float(val_float), 2)
-                        print(f"   ✅ {concepto} (fila {fila_buscar}): {val} -> {totales[concepto]}")
-                    else:
-                        print(f"   ⚠️ {concepto} (fila {fila_buscar}): no se encontró valor válido")
-                    break
+                        
+                        val_float = _to_float(val) if val else np.nan
+                        if pd.notna(val_float) and not np.isnan(val_float) and val_float != 0:
+                            totales[concepto] = round(float(val_float), 2)
+                            print(f"   ✅ {concepto} (fila {fila_buscar}, label='{label_celda}'): {val} -> {totales[concepto]}")
+                        else:
+                            print(f"   ⚠️ {concepto} (fila {fila_buscar}, label='{label_celda}'): valor no válido ({val})")
+                        break
     
     # Verificar qué conceptos no se encontraron
     for concepto in conceptos:
         if concepto not in totales:
             totales[concepto] = np.nan
-            print(f"   ❌ {concepto}: no encontrado")
+            print(f"   ❌ {concepto}: no encontrado en ninguna fila")
 
     if total_yappy: totales["YAPPY"] = _to_float(total_yappy)
     if total_ach: totales["ACH"] = _to_float(total_ach)
