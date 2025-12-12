@@ -19,6 +19,7 @@ limpiar_monto = clean_amount
 def detectar_header_row(content, filename, columnas_esperadas=None):
     """
     Detecta automáticamente la fila del header buscando las columnas esperadas.
+    Es robusto ante cambios en la estructura del Excel.
     
     Args:
         content: Contenido del archivo en bytes
@@ -29,30 +30,73 @@ def detectar_header_row(content, filename, columnas_esperadas=None):
         Número de fila del header (0-indexed) o None si no se encuentra
     """
     if columnas_esperadas is None:
-        columnas_esperadas = ["fecha", "descripcion", "credito", "descripción", "crédito"]
+        # Variaciones comunes de nombres de columnas
+        columnas_esperadas = [
+            "fecha", "date", "fecha movimiento", "fecha de movimiento",
+            "descripcion", "descripción", "desc", "concepto", "detalle", "movimiento",
+            "credito", "crédito", "credit", "monto", "importe", "valor", "cantidad",
+            "debito", "débito", "debit"
+        ]
     
-    # Intentar leer las primeras 20 filas sin header para buscar
-    for header_row in range(20):
+    # Intentar leer las primeras 30 filas para buscar el header
+    mejor_coincidencia = None
+    mejor_score = 0
+    
+    for header_row in range(30):
         try:
             df_temp = read_file(content, filename, header=header_row)
+            
+            if df_temp.empty or len(df_temp.columns) < 2:
+                continue
             
             # Normalizar nombres de columnas
             cols_lower = [str(c).strip().lower() for c in df_temp.columns]
             
             # Verificar si contiene las columnas esperadas
-            coincidencias = sum(1 for col_esperada in columnas_esperadas 
-                              if any(col_esperada in col for col in cols_lower))
+            coincidencias = 0
+            for col_esperada in columnas_esperadas:
+                for col in cols_lower:
+                    # Buscar coincidencias exactas o parciales
+                    if col_esperada == col or col_esperada in col or col in col_esperada:
+                        coincidencias += 1
+                        break
             
-            # Si encontramos al menos 2 columnas esperadas, este es el header
-            if coincidencias >= 2:
-                print(f"✅ Header detectado en fila {header_row + 1} (índice {header_row})")
-                return header_row
+            # Calcular score: más columnas coincidentes = mejor
+            # También considerar si hay datos válidos en las primeras filas
+            score = coincidencias
+            if len(df_temp) > 0:
+                # Verificar que haya datos no vacíos
+                non_empty_rows = df_temp.dropna(how='all').shape[0]
+                if non_empty_rows > 0:
+                    score += 1
+            
+            # Si encontramos al menos 2 columnas esperadas, considerar este header
+            if coincidencias >= 2 and score > mejor_score:
+                mejor_score = score
+                mejor_coincidencia = header_row
+                
+        except Exception as e:
+            # Continuar con la siguiente fila si hay error
+            continue
+    
+    if mejor_coincidencia is not None:
+        print(f"✅ Header detectado en fila {mejor_coincidencia + 1} (índice {mejor_coincidencia}) con score {mejor_score}")
+        return mejor_coincidencia
+    
+    # Si no se encuentra, intentar con filas comunes (6, 0, 1)
+    filas_comunes = [6, 0, 1, 2, 3]
+    for fila in filas_comunes:
+        try:
+            df_temp = read_file(content, filename, header=fila)
+            if not df_temp.empty and len(df_temp.columns) >= 2:
+                print(f"⚠️ No se detectó header automáticamente, usando fila {fila + 1} (índice {fila}) por defecto")
+                return fila
         except:
             continue
     
-    # Si no se encuentra, asumir fila 6 (comportamiento original)
-    print(f"⚠️ No se detectó header automáticamente, usando fila 7 (índice 6) por defecto")
-    return 6
+    # Último recurso: fila 0
+    print(f"⚠️ Usando fila 1 (índice 0) como último recurso")
+    return 0
 
 def limpiar_fecha(valor):
     """Convierte fecha a date object."""
@@ -166,17 +210,62 @@ async def banco_preview(
 
         # Normalizar nombres de columnas (por si varían en tildes o mayúsculas)
         df.columns = [str(c).strip().lower() for c in df.columns]
+        
+        print(f"📋 Columnas detectadas: {list(df.columns)}")
 
-        # Verificar columnas mínimas necesarias
-        required_cols = ["fecha", "descripción", "crédito"]
-        is_valid, error_msg = validate_dataframe(df, required_cols, min_rows=1)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=error_msg or "El archivo no tiene el formato esperado")
-
-        # Extraer columnas relevantes
-        col_fecha = next(c for c in df.columns if "fecha" in c)
-        col_desc = next(c for c in df.columns if "descr" in c)
-        col_credito = next(c for c in df.columns if "crédit" in c or "credit" in c)
+        # Verificar columnas mínimas necesarias con variaciones
+        # Buscar columnas de manera flexible
+        col_fecha = None
+        col_desc = None
+        col_credito = None
+        
+        # Buscar columna de fecha (múltiples variaciones)
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if not col_fecha and any(x in col_lower for x in ["fecha", "date"]):
+                col_fecha = col
+                break
+        
+        # Buscar columna de descripción (múltiples variaciones)
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if not col_desc and any(x in col_lower for x in ["descripcion", "descripción", "desc", "concepto", "detalle", "movimiento"]):
+                col_desc = col
+                break
+        
+        # Buscar columna de crédito/monto (múltiples variaciones)
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if not col_credito and any(x in col_lower for x in ["credito", "crédito", "credit", "monto", "importe", "valor"]):
+                col_credito = col
+                break
+        
+        # Validar que se encontraron las columnas necesarias
+        missing_cols = []
+        if not col_fecha:
+            missing_cols.append("Fecha (o Date)")
+        if not col_desc:
+            missing_cols.append("Descripción (o Concepto/Detalle)")
+        if not col_credito:
+            missing_cols.append("Crédito (o Monto/Importe)")
+        
+        if missing_cols:
+            columnas_disponibles = ", ".join(df.columns)
+            raise HTTPException(
+                status_code=400,
+                detail=f"El archivo no tiene el formato esperado. Faltan las siguientes columnas: {', '.join(missing_cols)}. "
+                       f"Columnas disponibles en el archivo: {columnas_disponibles}. "
+                       f"Verifica que el archivo contenga columnas de Fecha, Descripción y Crédito/Monto."
+            )
+        
+        # Validar que el DataFrame tenga datos
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="El archivo está vacío o no contiene datos. Verifica que el archivo tenga filas de datos."
+            )
+        
+        print(f"✅ Columnas encontradas: Fecha='{col_fecha}', Descripción='{col_desc}', Crédito='{col_credito}'")
 
         df_proc = df[[col_fecha, col_desc, col_credito]].copy()
         df_proc.columns = ["fecha", "descripcion", "monto"]
@@ -365,16 +454,56 @@ async def banco_preview(
         raise
     except ValueError as e:
         # Errores de formato o validación
+        error_msg = str(e)
         traceback.print_exc()
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Error en el formato del archivo: {str(e)}"
-        )
+        
+        # Hacer el mensaje más específico según el tipo de error
+        if "no se pudo leer" in error_msg.lower() or "no está soportado" in error_msg.lower():
+            detail_msg = (
+                f"Error al leer el archivo: {error_msg}. "
+                f"Verifica que el archivo sea un Excel válido (.xlsx, .xls, .xlsm) o CSV. "
+                f"Si el archivo está corrupto, intenta abrirlo en Excel y guardarlo nuevamente."
+            )
+        elif "vacío" in error_msg.lower() or "empty" in error_msg.lower():
+            detail_msg = (
+                f"El archivo está vacío o no contiene datos válidos. "
+                f"Verifica que el archivo tenga filas de datos después de los encabezados."
+            )
+        elif "columnas" in error_msg.lower() or "columns" in error_msg.lower():
+            detail_msg = error_msg
+        else:
+            detail_msg = f"Error en el formato del archivo: {error_msg}. Verifica que el archivo tenga el formato correcto."
+        
+        raise HTTPException(status_code=400, detail=detail_msg)
     except Exception as e:
         traceback.print_exc()
-        error_msg = f"Error procesando archivo bancario: {str(e)}"
-        print(f"❌ {error_msg}")
-        raise HTTPException(
-            status_code=500, 
-            detail=error_msg
-        )
+        error_type = type(e).__name__
+        error_msg = str(e)
+        
+        # Mensajes más específicos según el tipo de error
+        if "FileNotFoundError" in error_type or "No such file" in error_msg:
+            detail_msg = (
+                f"Error: No se encontró un archivo necesario. "
+                f"Verifica que todos los archivos requeridos estén disponibles. "
+                f"Error original: {error_msg}"
+            )
+        elif "PermissionError" in error_type:
+            detail_msg = (
+                f"Error de permisos: No se puede acceder al archivo. "
+                f"Verifica los permisos del archivo. Error: {error_msg}"
+            )
+        elif "MemoryError" in error_type:
+            detail_msg = (
+                f"Error de memoria: El archivo es demasiado grande para procesar. "
+                f"Intenta con un archivo más pequeño o divide los datos. Error: {error_msg}"
+            )
+        else:
+            detail_msg = (
+                f"Error procesando archivo bancario: {error_msg} "
+                f"(Tipo: {error_type}). "
+                f"Verifica que el archivo sea válido y tenga el formato correcto. "
+                f"Si el problema persiste, contacta al administrador."
+            )
+        
+        print(f"❌ {detail_msg}")
+        raise HTTPException(status_code=500, detail=detail_msg)

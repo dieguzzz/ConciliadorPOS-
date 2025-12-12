@@ -1,9 +1,11 @@
 """
 Utilidades para leer archivos Excel y CSV de manera unificada.
+Soporta múltiples formatos y es robusto ante cambios en la estructura de los archivos.
 """
 import pandas as pd
 import io
-from typing import Union, Optional
+from typing import Union, Optional, List
+import traceback
 
 
 def detect_file_type(filename: str) -> str:
@@ -50,6 +52,7 @@ def read_file(
 ) -> pd.DataFrame:
     """
     Lee un archivo Excel o CSV y retorna un DataFrame.
+    Intenta múltiples métodos y engines para maximizar compatibilidad.
     
     Args:
         content: Contenido del archivo en bytes
@@ -60,124 +63,122 @@ def read_file(
     
     Returns:
         DataFrame de pandas
-    """
-    file_type = detect_file_type(filename)
-    engine_override = None
     
-    # Determinar el engine según el tipo de archivo
-    if file_type == 'excel_xlrd':
-        # Para .xls antiguo, intentar primero con xlrd, luego openpyxl
-        engine_override = 'xlrd'
-    elif file_type == 'excel_openpyxl':
-        engine_override = 'openpyxl'
-    elif file_type == 'excel_xlsb':
-        # xlsb requiere pyxlsb, pero pandas no lo soporta directamente
-        # Intentar sin engine específico, si falla dar error claro
-        engine_override = None
-    elif file_type == 'ods':
-        # ODS requiere odfpy
-        engine_override = 'odf'
+    Raises:
+        ValueError: Con mensaje específico sobre qué falló y cómo solucionarlo
+    """
+    if not content or len(content) == 0:
+        raise ValueError("El archivo está vacío o no se recibió contenido")
+    
+    file_type = detect_file_type(filename)
+    errors = []  # Para acumular errores y dar mensaje detallado
     
     if file_type == 'csv':
         # Para CSV, intentar detectar el delimitador y encoding
-        try:
-            # Intentar con encoding UTF-8 primero
-            df = pd.read_csv(
-                io.BytesIO(content),
-                header=header,
-                encoding='utf-8',
-                sep=',',
-                skipinitialspace=True,
-                on_bad_lines='skip'
-            )
-        except UnicodeDecodeError:
-            # Si falla, intentar con latin-1
-            try:
-                df = pd.read_csv(
-                    io.BytesIO(content),
-                    header=header,
-                    encoding='latin-1',
-                    sep=',',
-                    skipinitialspace=True,
-                    on_bad_lines='skip'
-                )
-            except Exception:
-                # Último intento con diferentes delimitadores
-                for sep in [';', '\t', '|']:
-                    try:
-                        df = pd.read_csv(
-                            io.BytesIO(content),
-                            header=header,
-                            encoding='utf-8',
-                            sep=sep,
-                            skipinitialspace=True,
-                            on_bad_lines='skip'
-                        )
-                        break
-                    except:
-                        continue
-                else:
-                    raise ValueError(
-                        "No se pudo leer el archivo CSV. "
-                        "Verifica que el archivo esté en formato CSV válido con delimitador ',' o ';'."
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        separators = [',', ';', '\t', '|']
+        
+        for encoding in encodings:
+            for sep in separators:
+                try:
+                    df = pd.read_csv(
+                        io.BytesIO(content),
+                        header=header,
+                        encoding=encoding,
+                        sep=sep,
+                        skipinitialspace=True,
+                        on_bad_lines='skip',
+                        engine='python'
                     )
+                    if not df.empty:
+                        return df
+                except Exception as e:
+                    errors.append(f"Encoding {encoding}, separador '{sep}': {str(e)}")
+                    continue
         
-        if df.empty:
-            raise ValueError("El archivo CSV está vacío o no contiene datos válidos")
-        
-        return df
+        raise ValueError(
+            f"No se pudo leer el archivo CSV '{filename}'. "
+            f"Se intentaron múltiples encodings ({', '.join(encodings)}) y separadores ({', '.join(separators)}). "
+            f"Verifica que el archivo esté en formato CSV válido. "
+            f"Errores: {'; '.join(errors[:3])}"
+        )
     
     elif file_type.startswith('excel') or file_type == 'ods':
-        # Para Excel y ODS, usar pd.read_excel con el engine apropiado
-        excel_engine = engine_override if engine_override else engine
+        # Lista de engines a intentar en orden de preferencia
+        engines_to_try = []
         
-        try:
-            if sheet_name is not None:
-                return pd.read_excel(
-                    io.BytesIO(content),
-                    sheet_name=sheet_name,
-                    header=header,
-                    engine=excel_engine
-                )
-            else:
-                return pd.read_excel(
-                    io.BytesIO(content),
-                    header=header,
-                    engine=excel_engine
-                )
-        except Exception as e:
-            # Si falla con xlrd para .xls, intentar con openpyxl
-            if file_type == 'excel_xlrd' and excel_engine == 'xlrd':
-                try:
-                    print("⚠️ Intentando leer .xls con openpyxl como fallback...")
-                    if sheet_name is not None:
-                        return pd.read_excel(
-                            io.BytesIO(content),
-                            sheet_name=sheet_name,
-                            header=header,
-                            engine='openpyxl'
-                        )
-                    else:
-                        return pd.read_excel(
-                            io.BytesIO(content),
-                            header=header,
-                            engine='openpyxl'
-                        )
-                except:
-                    # Si también falla, lanzar el error original
-                    pass
-            
-            if file_type == 'excel_xlsb':
-                raise ValueError(
-                    "El formato .xlsb (Excel binario) no está soportado actualmente. "
-                    "Por favor, convierte el archivo a .xlsx o .xls"
-                ) from e
-            elif file_type == 'ods':
-                raise ValueError(
-                    "El formato .ods (OpenDocument) requiere la librería 'odfpy'. "
-                    "Por favor, instala 'odfpy' o convierte el archivo a .xlsx"
-                ) from e
-            raise
+        if file_type == 'excel_xlrd':
+            engines_to_try = ['xlrd', 'openpyxl', 'calamine']
+        elif file_type == 'excel_openpyxl':
+            engines_to_try = ['openpyxl', 'calamine', 'xlrd']
+        elif file_type == 'excel_xlsb':
+            engines_to_try = ['pyxlsb', 'openpyxl']
+        elif file_type == 'ods':
+            engines_to_try = ['odf', 'openpyxl']
+        else:
+            engines_to_try = ['openpyxl', 'xlrd', 'calamine']
+        
+        # Intentar con cada engine
+        last_error = None
+        for excel_engine in engines_to_try:
+            try:
+                if sheet_name is not None:
+                    df = pd.read_excel(
+                        io.BytesIO(content),
+                        sheet_name=sheet_name,
+                        header=header,
+                        engine=excel_engine
+                    )
+                else:
+                    df = pd.read_excel(
+                        io.BytesIO(content),
+                        header=header,
+                        engine=excel_engine
+                    )
+                
+                if df is not None and not df.empty:
+                    return df
+                elif df is not None and df.empty:
+                    # DataFrame vacío pero válido - puede ser que el header esté mal
+                    continue
+                    
+            except ImportError as e:
+                error_msg = f"Engine '{excel_engine}' no está instalado"
+                errors.append(error_msg)
+                print(f"⚠️ {error_msg}: {str(e)}")
+                continue
+            except Exception as e:
+                error_msg = f"Error con engine '{excel_engine}': {str(e)}"
+                errors.append(error_msg)
+                last_error = e
+                print(f"⚠️ {error_msg}")
+                continue
+        
+        # Si llegamos aquí, todos los engines fallaron
+        if file_type == 'excel_xlsb':
+            raise ValueError(
+                f"No se pudo leer el archivo .xlsb '{filename}'. "
+                f"El formato Excel binario (.xlsb) requiere la librería 'pyxlsb'. "
+                f"Instala con: pip install pyxlsb. "
+                f"O convierte el archivo a .xlsx. "
+                f"Errores: {'; '.join(errors[:3])}"
+            ) from last_error
+        elif file_type == 'ods':
+            raise ValueError(
+                f"No se pudo leer el archivo .ods '{filename}'. "
+                f"El formato OpenDocument requiere la librería 'odfpy'. "
+                f"Instala con: pip install odfpy. "
+                f"O convierte el archivo a .xlsx. "
+                f"Errores: {'; '.join(errors[:3])}"
+            ) from last_error
+        else:
+            raise ValueError(
+                f"No se pudo leer el archivo Excel '{filename}'. "
+                f"Se intentaron los engines: {', '.join(engines_to_try)}. "
+                f"Posibles causas: archivo corrupto, formato no soportado, o falta instalar librerías. "
+                f"Verifica que el archivo sea un Excel válido (.xlsx, .xls, .xlsm). "
+                f"Errores: {'; '.join(errors[:3])}"
+            ) from last_error
     
     else:
         supported = '.csv, .xlsx, .xls, .xlsm, .xlsb, .ods'
@@ -187,26 +188,47 @@ def read_file(
         )
 
 
-def get_excel_sheets(content: bytes, filename: str = "archivo.xlsx") -> list:
+def get_excel_sheets(content: bytes, filename: str = "archivo.xlsx") -> List[str]:
     """
     Obtiene la lista de hojas disponibles en un archivo Excel/ODS.
+    Intenta múltiples engines para maximizar compatibilidad.
     Retorna lista vacía si no es Excel/ODS o hay error.
     """
+    if not content or len(content) == 0:
+        return []
+    
     try:
         file_type = detect_file_type(filename)
         
-        # Determinar engine según tipo
-        if file_type == 'excel_xlrd':
-            engine = 'xlrd'
-        elif file_type == 'excel_openpyxl':
-            engine = 'openpyxl'
-        elif file_type == 'ods':
-            engine = 'odf'
-        else:
-            engine = None
+        if not (file_type.startswith('excel') or file_type == 'ods'):
+            return []
         
-        xls = pd.ExcelFile(io.BytesIO(content), engine=engine)
-        return xls.sheet_names
-    except:
+        # Lista de engines a intentar
+        engines_to_try = []
+        if file_type == 'excel_xlrd':
+            engines_to_try = ['xlrd', 'openpyxl', 'calamine']
+        elif file_type == 'excel_openpyxl':
+            engines_to_try = ['openpyxl', 'calamine', 'xlrd']
+        elif file_type == 'excel_xlsb':
+            engines_to_try = ['pyxlsb', 'openpyxl']
+        elif file_type == 'ods':
+            engines_to_try = ['odf', 'openpyxl']
+        else:
+            engines_to_try = ['openpyxl', 'xlrd', 'calamine']
+        
+        # Intentar con cada engine
+        for engine in engines_to_try:
+            try:
+                xls = pd.ExcelFile(io.BytesIO(content), engine=engine)
+                if xls.sheet_names:
+                    return xls.sheet_names
+            except ImportError:
+                continue
+            except Exception:
+                continue
+        
+        return []
+    except Exception as e:
+        print(f"⚠️ Error obteniendo hojas de '{filename}': {str(e)}")
         return []
 
