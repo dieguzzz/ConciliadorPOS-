@@ -277,17 +277,26 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
         # Si es "Derecha", buscar a la derecha
         if col_destino == "B":
             # Extraer fila de celda (ej: "A13" -> fila 13)
-            r, _ = _cell_to_rc(celda)
-            fila = r + 1  # Convertir a 1-based
+            try:
+                r, _ = _cell_to_rc(celda)
+                fila = r + 1  # Convertir a 1-based
+            except:
+                # Si falla, extraer número directamente de la celda
+                import re
+                match = re.search(r'(\d+)', celda)
+                fila = int(match.group(1)) if match else 13
+            
             val = _get(df_raw, f"B{fila}")
             # También buscar en filas cercanas si no encuentra
-            if not val or pd.isna(_to_float(val)):
+            if not val or (val and pd.isna(_to_float(val))):
                 for offset in [-1, 1, -2, 2]:
-                    val_alt = _get(df_raw, f"B{fila + offset}")
-                    if val_alt and pd.notna(_to_float(val_alt)):
-                        val = val_alt
-                        print(f"   {nombre} (B{fila}): no encontrado, usando B{fila + offset} = {val}")
-                        break
+                    fila_alt = fila + offset
+                    if fila_alt > 0:
+                        val_alt = _get(df_raw, f"B{fila_alt}")
+                        if val_alt and pd.notna(_to_float(val_alt)) and _to_float(val_alt) != 0:
+                            val = val_alt
+                            print(f"   {nombre} (B{fila}): no encontrado, usando B{fila_alt} = {val}")
+                            break
         else:
             val = _right_of(df_raw, celda, max_steps=6) if col_destino == "Derecha" else _below(df_raw, celda, max_steps=6)
         
