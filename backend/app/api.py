@@ -274,9 +274,18 @@ def parse_cierre_blackdog_posicional(df_raw: pd.DataFrame, info_nombre: dict = N
             
             if nombre is not None and pd.notna(nombre):
                 nombre_str = str(nombre).strip().upper()
+                # Solo detener si encontramos "TOTAL" en la columna de nombres Y tiene un monto válido
+                # Esto evita detenerse si "TOTAL" está en otra columna (como H13 que tiene "TOTAL" pero no es el bloque de Yappy)
                 if nombre_str == "TOTAL" or (nombre_str and "TOTAL" in nombre_str and len(nombre_str) < 20):
-                    print(f"   Encontrado TOTAL en fila {f_idx+1} (idx {f_idx}), deteniendo lectura")
-                    break
+                    # Verificar si hay un monto válido en esta fila (indica que es realmente el total del bloque)
+                    monto_val = _to_float(monto) if monto is not None and pd.notna(monto) else np.nan
+                    if pd.notna(monto_val) and monto_val > 0:
+                        print(f"   Encontrado TOTAL con monto válido en fila {f_idx+1} (idx {f_idx}), deteniendo lectura")
+                        break
+                    else:
+                        # Si es "TOTAL" pero no tiene monto, probablemente es un label en otra columna, continuar
+                        print(f"   Encontrado 'TOTAL' en fila {f_idx+1} pero sin monto válido, continuando...")
+                        continue
                 
                 if nombre_str != "" and nombre_str not in ["NAN", "NONE", ""]:
                     # Intentar leer monto de diferentes columnas si la principal está vacía
