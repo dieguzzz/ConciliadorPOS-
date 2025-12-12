@@ -269,3 +269,26 @@ def normalize_text(text: Union[str, None]) -> str:
     
     return s
 
+
+# Importar funciones del column_detector para mantener compatibilidad
+from app.utils.column_detector import (
+    is_likely_date_column,
+    is_likely_amount_column,
+    is_likely_text_column,
+    normalize_column_name,
+    fuzzy_match_score
+)
+
+# Re-exportar para uso directo desde validators
+__all__ = [
+    'clean_amount',
+    'clean_date',
+    'validate_dataframe',
+    'normalize_text',
+    'is_likely_date_column',
+    'is_likely_amount_column',
+    'is_likely_text_column',
+    'normalize_column_name',
+    'fuzzy_match_score'
+]
+

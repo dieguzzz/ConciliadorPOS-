@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from app.utils.file_reader import read_file, detect_file_type
 from app.utils.validators import clean_amount, clean_date, validate_dataframe, normalize_text
+from app.utils.column_detector import ColumnDetector, normalize_column_name, fuzzy_match_score
 
 router = APIRouter()
 
@@ -18,7 +19,7 @@ limpiar_monto = clean_amount
 
 def detectar_header_row(content, filename, columnas_esperadas=None):
     """
-    Detecta automáticamente la fila del header buscando las columnas esperadas.
+    Detecta automáticamente la fila del header usando sistema multi-estrategia mejorado.
     Es robusto ante cambios en la estructura del Excel.
     
     Args:
@@ -39,55 +40,71 @@ def detectar_header_row(content, filename, columnas_esperadas=None):
         ]
     
     # Intentar leer las primeras 30 filas para buscar el header
-    mejor_coincidencia = None
-    mejor_score = 0
+    candidatos = []
     
     for header_row in range(30):
         try:
-            df_temp = read_file(content, filename, sheet_name=0, header=header_row)  # Siempre usar hoja 1
+            df_temp = read_file(content, filename, sheet_name=0, header=header_row)
             
             if df_temp.empty or len(df_temp.columns) < 2:
                 continue
             
-            # Normalizar nombres de columnas
-            cols_lower = [str(c).strip().lower() for c in df_temp.columns]
+            # Usar ColumnDetector para análisis más robusto
+            expected_cols = {
+                "fecha": ["fecha", "date", "fecha movimiento"],
+                "descripcion": ["descripcion", "descripción", "desc", "concepto", "detalle"],
+                "monto": ["credito", "crédito", "credit", "monto", "importe"]
+            }
             
-            # Verificar si contiene las columnas esperadas
-            coincidencias = 0
-            for col_esperada in columnas_esperadas:
-                for col in cols_lower:
-                    # Buscar coincidencias exactas o parciales
-                    if col_esperada == col or col_esperada in col or col in col_esperada:
-                        coincidencias += 1
-                        break
+            detector = ColumnDetector(df_temp, expected_cols)
+            detections = detector.detect_all()
             
-            # Calcular score: más columnas coincidentes = mejor
-            # También considerar si hay datos válidos en las primeras filas
-            score = coincidencias
-            if len(df_temp) > 0:
-                # Verificar que haya datos no vacíos
-                non_empty_rows = df_temp.dropna(how='all').shape[0]
-                if non_empty_rows > 0:
-                    score += 1
+            # Calcular score combinado
+            total_confidence = 0
+            columns_found = 0
+            for col_type, detection in detections.items():
+                if detection["column_index"] is not None:
+                    total_confidence += detection["confidence"]
+                    columns_found += 1
             
-            # Si encontramos al menos 2 columnas esperadas, considerar este header
-            if coincidencias >= 2 and score > mejor_score:
-                mejor_score = score
-                mejor_coincidencia = header_row
+            if columns_found > 0:
+                avg_confidence = total_confidence / columns_found
+                
+                # Bonus si la fila siguiente tiene datos válidos
+                data_bonus = 0
+                if len(df_temp) > 0:
+                    non_empty_rows = df_temp.dropna(how='all').shape[0]
+                    if non_empty_rows > 0:
+                        data_bonus = 10
+                
+                final_score = avg_confidence + data_bonus
+                
+                candidatos.append({
+                    "header_row": header_row,
+                    "score": final_score,
+                    "confidence": avg_confidence,
+                    "columns_found": columns_found,
+                    "detections": detections
+                })
                 
         except Exception as e:
             # Continuar con la siguiente fila si hay error
             continue
     
-    if mejor_coincidencia is not None:
-        print(f"✅ Header detectado en fila {mejor_coincidencia + 1} (índice {mejor_coincidencia}) con score {mejor_score}")
-        return mejor_coincidencia
+    # Ordenar candidatos por score
+    candidatos.sort(key=lambda x: x["score"], reverse=True)
     
-    # Si no se encuentra, intentar con filas comunes (6, 0, 1)
+    if candidatos and candidatos[0]["score"] >= 50:  # Umbral mínimo
+        mejor = candidatos[0]
+        print(f"✅ Header detectado en fila {mejor['header_row'] + 1} (índice {mejor['header_row']})")
+        print(f"   Score: {mejor['score']:.1f}, Confianza promedio: {mejor['confidence']:.1f}%, Columnas encontradas: {mejor['columns_found']}")
+        return mejor["header_row"]
+    
+    # Si no se encuentra con el sistema inteligente, intentar con filas comunes
     filas_comunes = [6, 0, 1, 2, 3]
     for fila in filas_comunes:
         try:
-            df_temp = read_file(content, filename, sheet_name=0, header=fila)  # Siempre usar hoja 1
+            df_temp = read_file(content, filename, sheet_name=0, header=fila)
             if not df_temp.empty and len(df_temp.columns) >= 2:
                 print(f"⚠️ No se detectó header automáticamente, usando fila {fila + 1} (índice {fila}) por defecto")
                 return fila
@@ -209,55 +226,94 @@ async def banco_preview(
         header_row = detectar_header_row(content, filename)
         df = read_file(content, filename, sheet_name=0, header=header_row)  # sheet_name=0 = primera hoja
 
-        # Normalizar nombres de columnas (por si varían en tildes o mayúsculas)
-        df.columns = [str(c).strip().lower() for c in df.columns]
+        print(f"📋 Columnas detectadas en el archivo: {list(df.columns)}")
         
-        print(f"📋 Columnas detectadas: {list(df.columns)}")
-
-        # Verificar columnas mínimas necesarias con variaciones
-        # Buscar columnas de manera flexible
-        col_fecha = None
-        col_desc = None
-        col_credito = None
+        # 🔥 USAR SISTEMA INTELIGENTE DE DETECCIÓN DE COLUMNAS
+        expected_columns = {
+            "fecha": ["fecha", "date", "fecha movimiento", "fecha de movimiento"],
+            "descripcion": ["descripcion", "descripción", "desc", "concepto", "detalle", "movimiento"],
+            "monto": ["credito", "crédito", "credit", "monto", "importe", "valor", "cantidad"]
+        }
         
-        # Buscar columna de fecha (múltiples variaciones)
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if not col_fecha and any(x in col_lower for x in ["fecha", "date"]):
-                col_fecha = col
-                break
+        detector = ColumnDetector(df, expected_columns)
+        detections = detector.detect_all()
         
-        # Buscar columna de descripción (múltiples variaciones)
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if not col_desc and any(x in col_lower for x in ["descripcion", "descripción", "desc", "concepto", "detalle", "movimiento"]):
-                col_desc = col
-                break
+        # Mostrar resultados de detección
+        print(f"\n🔍 Resultados de detección de columnas:")
+        for col_type, detection in detections.items():
+            if detection["column_index"] is not None:
+                print(f"   ✅ {col_type.upper()}: Columna '{detection['column_name']}' (índice {detection['column_index']})")
+                print(f"      Confianza: {detection['confidence']:.1f}% (nombre: {detection['scores']['name']:.1f}%, contenido: {detection['scores']['content']:.1f}%, posición: {detection['scores']['position']:.1f}%)")
+            else:
+                print(f"   ❌ {col_type.upper()}: No detectada")
         
-        # Buscar columna de crédito/monto (múltiples variaciones)
-        for col in df.columns:
-            col_lower = str(col).lower()
-            if not col_credito and any(x in col_lower for x in ["credito", "crédito", "credit", "monto", "importe", "valor"]):
-                col_credito = col
-                break
+        # Validar detección
+        validation = detector.validate_detection(min_confidence=50.0, min_valid_rows_ratio=0.3)
         
-        # Validar que se encontraron las columnas necesarias
+        # Si la detección no es válida, intentar fallbacks
+        if not validation["overall_valid"] or any(d["column_index"] is None for d in detections.values()):
+            print(f"\n⚠️ Detección inicial no completamente válida, intentando fallbacks...")
+            
+            # Fallback 1: Intentar con diferentes rangos de filas para header
+            fallback_success = False
+            for fallback_header in [header_row + 1, header_row - 1, header_row + 2, header_row - 2]:
+                if fallback_header < 0:
+                    continue
+                try:
+                    print(f"   Intentando con header en fila {fallback_header + 1}...")
+                    df_fallback = read_file(content, filename, sheet_name=0, header=fallback_header)
+                    if not df_fallback.empty and len(df_fallback.columns) >= 2:
+                        detector_fallback = ColumnDetector(df_fallback, expected_columns)
+                        detections_fallback = detector_fallback.detect_all()
+                        validation_fallback = detector_fallback.validate_detection(min_confidence=50.0, min_valid_rows_ratio=0.3)
+                        
+                        # Si este fallback es mejor, usarlo
+                        if validation_fallback["overall_valid"] and all(d["column_index"] is not None for d in detections_fallback.values()):
+                            print(f"   ✅ Fallback exitoso con header en fila {fallback_header + 1}")
+                            df = df_fallback
+                            detections = detections_fallback
+                            validation = validation_fallback
+                            fallback_success = True
+                            break
+                except:
+                    continue
+            
+            # Si aún no funciona, mostrar advertencias pero continuar
+            if not fallback_success:
+                print(f"   ⚠️ No se encontró mejor opción con fallbacks, continuando con detección actual")
+                for warning in validation.get("warnings", []):
+                    print(f"   ⚠️ {warning}")
+        
+        # Extraer índices de columnas detectadas
+        col_fecha_idx = detections["fecha"]["column_index"]
+        col_desc_idx = detections["descripcion"]["column_index"]
+        col_credito_idx = detections["monto"]["column_index"]
+        
+        # Validar que se encontraron todas las columnas necesarias
         missing_cols = []
-        if not col_fecha:
+        if col_fecha_idx is None:
             missing_cols.append("Fecha (o Date)")
-        if not col_desc:
+        if col_desc_idx is None:
             missing_cols.append("Descripción (o Concepto/Detalle)")
-        if not col_credito:
+        if col_credito_idx is None:
             missing_cols.append("Crédito (o Monto/Importe)")
         
         if missing_cols:
-            columnas_disponibles = ", ".join(df.columns)
-            raise HTTPException(
-                status_code=400,
-                detail=f"El archivo no tiene el formato esperado. Faltan las siguientes columnas: {', '.join(missing_cols)}. "
-                       f"Columnas disponibles en el archivo: {columnas_disponibles}. "
-                       f"Verifica que el archivo contenga columnas de Fecha, Descripción y Crédito/Monto."
+            columnas_disponibles = ", ".join([str(c) for c in df.columns])
+            # Incluir información de detección en el error
+            error_detail = (
+                f"El archivo no tiene el formato esperado. Faltan las siguientes columnas: {', '.join(missing_cols)}. "
+                f"Columnas disponibles en el archivo: {columnas_disponibles}. "
+                f"Verifica que el archivo contenga columnas de Fecha, Descripción y Crédito/Monto.\n\n"
+                f"Información de detección:\n"
             )
+            for col_type, detection in detections.items():
+                if detection["column_index"] is None:
+                    error_detail += f"- {col_type.upper()}: No detectada (confianza máxima intentada: {max([d['confidence'] for d in detections.values() if d['column_index'] is not None], default=0):.1f}%)\n"
+                else:
+                    error_detail += f"- {col_type.upper()}: '{detection['column_name']}' (confianza: {detection['confidence']:.1f}%)\n"
+            
+            raise HTTPException(status_code=400, detail=error_detail)
         
         # Validar que el DataFrame tenga datos
         if df.empty:
@@ -266,9 +322,14 @@ async def banco_preview(
                 detail="El archivo está vacío o no contiene datos. Verifica que el archivo tenga filas de datos."
             )
         
-        print(f"✅ Columnas encontradas: Fecha='{col_fecha}', Descripción='{col_desc}', Crédito='{col_credito}'")
+        col_fecha = df.columns[col_fecha_idx]
+        col_desc = df.columns[col_desc_idx]
+        col_credito = df.columns[col_credito_idx]
+        
+        print(f"✅ Columnas finales seleccionadas: Fecha='{col_fecha}', Descripción='{col_desc}', Crédito='{col_credito}'")
+        print(f"   Confianza promedio: {sum(d['confidence'] for d in detections.values()) / len(detections):.1f}%")
 
-        df_proc = df[[col_fecha, col_desc, col_credito]].copy()
+        df_proc = df.iloc[:, [col_fecha_idx, col_desc_idx, col_credito_idx]].copy()
         df_proc.columns = ["fecha", "descripcion", "monto"]
 
         # Limpiar columnas
@@ -474,6 +535,21 @@ async def banco_preview(
 
         # Retornar todos los resultados filtrados (sin límite)
         preview = df_proc.to_dict(orient="records")
+        
+        # Calcular confianza promedio de detección
+        detected_cols = [d for d in detections.values() if d["column_index"] is not None]
+        avg_confidence = sum(d["confidence"] for d in detected_cols) / len(detected_cols) if detected_cols else 0.0
+        
+        # Preparar información de columnas detectadas
+        detected_columns_info = {
+            col_type: {
+                "name": str(detection["column_name"]),
+                "index": detection["column_index"],
+                "confidence": round(detection["confidence"], 1)
+            }
+            for col_type, detection in detections.items()
+            if detection["column_index"] is not None
+        }
 
         return {
             "ok": True,
@@ -483,6 +559,12 @@ async def banco_preview(
             "filtros": {
                 "fecha": fecha_cierre,
                 "sucursal": sucursal_cierre
+            },
+            "detection_confidence": round(avg_confidence, 1),
+            "detected_columns": detected_columns_info,
+            "validation_results": {
+                "overall_valid": validation.get("overall_valid", True),
+                "warnings": validation.get("warnings", [])
             }
         }
 
