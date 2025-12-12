@@ -367,18 +367,12 @@ async def cierre_preview(cierre: UploadFile = File(...), hoja_cierre: str = Form
                     target = hoja_cierre
                     print(f"📄 Seleccionando hoja por nombre: '{target}'")
             else:
-                # Buscar la primera hoja no vacía
-                for sheet_name in available_sheets:
-                    try:
-                        test_df = read_file(contents, filename, sheet_name=sheet_name, header=None)
-                        if test_df.dropna(how="all").shape[0] > 0:
-                            target = sheet_name
-                            break
-                    except:
-                        continue
-                if not target and available_sheets:
+                # Por defecto, usar la primera hoja (índice 0)
+                if available_sheets:
                     target = available_sheets[0]
-                print(f"📄 Auto-seleccionando primera hoja no vacía: '{target}'")
+                    print(f"📄 Usando hoja 1 por defecto: '{target}'")
+                else:
+                    print(f"⚠️ No se encontraron hojas en el archivo")
         else:
             # Para CSV, no hay hojas
             print(f"📄 Archivo CSV, no se requiere selección de hoja")

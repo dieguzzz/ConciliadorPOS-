@@ -17,7 +17,7 @@ export default function Home() {
   const [yappyLoading, setYappyLoading] = useState(false);
   const [bancoLoading, setBancoLoading] = useState(false);
 
-  const [hojaSeleccionada, setHojaSeleccionada] = useState("11");
+  const [hojaSeleccionada, setHojaSeleccionada] = useState("1");
 
   // =================== FUNCIÓN PARA RECARGAR CIERRE ===================
   const recargarCierre = async (file) => {

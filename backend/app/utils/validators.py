@@ -125,46 +125,77 @@ def clean_date(value: Union[str, datetime, pd.Timestamp, None]) -> Optional[str]
                     month_int = int(month)
                     year_int = int(year)
                     
-                    # Intentar primero con el orden original (DD/MM/YYYY)
+                    # Obtener mes y año actuales para priorizar fechas del mes actual
+                    fecha_actual = datetime.now()
+                    mes_actual = fecha_actual.month
+                    año_actual = fecha_actual.year
+                    
+                    # Intentar ambas interpretaciones: DD/MM/YYYY y MM/DD/YYYY
+                    interpretaciones = []
+                    
+                    # Interpretación 1: DD/MM/YYYY (original)
+                    try:
+                        dt1 = datetime(year_int, month_int, day_int)
+                        if dt1.year >= 2000 and dt1.year <= año_actual + 10:
+                            # Calcular score: más puntos si es del mes/año actual
+                            score1 = 0
+                            if dt1.month == mes_actual and dt1.year == año_actual:
+                                score1 = 10  # Máxima prioridad: mes y año actual
+                            elif dt1.year == año_actual:
+                                score1 = 5   # Prioridad media: año actual
+                            elif abs((dt1.year - año_actual) * 12 + (dt1.month - mes_actual)) <= 2:
+                                score1 = 3  # Prioridad baja: mes cercano (dentro de 2 meses)
+                            else:
+                                score1 = 1  # Prioridad mínima
+                            interpretaciones.append((dt1, score1, f"{day_int:02d}/{month_int:02d}/{year_int}"))
+                    except ValueError:
+                        pass
+                    
+                    # Interpretación 2: MM/DD/YYYY (intercambiado) - solo si ambos valores son válidos
+                    if month_int <= 12 and day_int <= 31:
+                        try:
+                            dt2 = datetime(year_int, day_int, month_int)
+                            if dt2.year >= 2000 and dt2.year <= año_actual + 10:
+                                # Calcular score: más puntos si es del mes/año actual
+                                score2 = 0
+                                if dt2.month == mes_actual and dt2.year == año_actual:
+                                    score2 = 10  # Máxima prioridad: mes y año actual
+                                elif dt2.year == año_actual:
+                                    score2 = 5   # Prioridad media: año actual
+                                elif abs((dt2.year - año_actual) * 12 + (dt2.month - mes_actual)) <= 2:
+                                    score2 = 3  # Prioridad baja: mes cercano
+                                else:
+                                    score2 = 1  # Prioridad mínima
+                                interpretaciones.append((dt2, score2, f"{month_int:02d}/{day_int:02d}/{year_int}"))
+                        except ValueError:
+                            pass
+                    
+                    # Si hay interpretaciones válidas, elegir la de mayor score (prioriza mes actual)
+                    if interpretaciones:
+                        # Ordenar por score descendente
+                        interpretaciones.sort(key=lambda x: x[1], reverse=True)
+                        dt_final, score_final, fecha_str_final = interpretaciones[0]
+                        
+                        # Si se eligió la interpretación intercambiada, mostrar advertencia
+                        if len(interpretaciones) > 1 and interpretaciones[0][2] != f"{day_int:02d}/{month_int:02d}/{year_int}":
+                            print(f"⚠️ Fecha corregida (priorizado mes actual): {s} -> {fecha_str_final} (score: {score_final})")
+                        elif score_final >= 5:
+                            print(f"✅ Fecha detectada (mes actual): {fecha_str_final}")
+                        
+                        return dt_final.strftime("%d/%m/%Y")
+                    
+                    # Si ninguna interpretación es válida, intentar forzar con el orden original
                     try:
                         dt = datetime(year_int, month_int, day_int)
-                        # Validar que la fecha sea razonable (no muy futura, no muy antigua)
-                        fecha_actual = datetime.now()
-                        if dt.year > fecha_actual.year + 10 or dt.year < 2000:
-                            # Si la fecha es muy futura o muy antigua, puede estar al revés
-                            raise ValueError("Fecha fuera de rango razonable")
                         return dt.strftime("%d/%m/%Y")
                     except ValueError:
-                        # Si falla, intentar intercambiar día y mes
-                        # Ejemplo: 12/01/2025 -> 01/12/2025 (si 12 no es un mes válido)
-                        if month_int > 12 and day_int <= 12:
-                            # El mes es > 12, probablemente está al revés
+                        # Si falla, intentar intercambiado como último recurso
+                        if month_int <= 12 and day_int <= 31:
                             try:
                                 dt_corregido = datetime(year_int, day_int, month_int)
                                 fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
                                 print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
                                 return fecha_corregida
-                            except ValueError:
-                                pass
-                        elif day_int > 31 and month_int <= 12:
-                            # El día es > 31, probablemente está al revés
-                            try:
-                                dt_corregido = datetime(year_int, day_int, month_int)
-                                fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
-                                print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
-                                return fecha_corregida
-                            except ValueError:
-                                pass
-                        # Si ambos son válidos pero la fecha original no funciona, probar intercambio
-                        elif month_int <= 12 and day_int <= 31:
-                            try:
-                                dt_corregido = datetime(year_int, day_int, month_int)
-                                # Si la fecha corregida es más razonable (no muy futura)
-                                fecha_actual = datetime.now()
-                                if dt_corregido.year <= fecha_actual.year + 10:
-                                    fecha_corregida = dt_corregido.strftime("%d/%m/%Y")
-                                    print(f"⚠️ Fecha corregida (intercambiado día/mes): {s} -> {fecha_corregida}")
-                                    return fecha_corregida
                             except ValueError:
                                 pass
             except (ValueError, TypeError):
