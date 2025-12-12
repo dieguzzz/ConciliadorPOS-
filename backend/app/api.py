@@ -586,36 +586,116 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
                     if "SUB-TOTAL" not in header_upper:
                         cols["total"] = idx
         
-        # Si no se encontraron todas las columnas, usar valores por defecto o buscar en el contenido
-        default_cols = {"fecha": 1, "referencia": 6, "cliente": 9, "celular": 12, "estado": 14, "total": 22}
-        for key, default_val in default_cols.items():
-            if key not in cols:
-                cols[key] = default_val
-                print(f"⚠️ Columna '{key}' no detectada, usando columna {default_val} por defecto")
+        # Si no se encontraron todas las columnas, intentar detectar por contenido
+        print(f"📊 Columnas detectadas por nombre: {cols}")
         
-        print(f"📊 Columnas detectadas: {cols}")
-        
-        # Leer datos
+        # Leer datos para análisis
         df_data = df_raw.iloc[start_row:].reset_index(drop=True)
         
+        # Validar que las columnas existen antes de usar valores por defecto
+        max_col = max([c for c in cols.values() if c is not None], default=0)
+        if max_col >= len(df_data.columns):
+            raise ValueError(f"❌ Columna {max_col} fuera de rango. El archivo tiene {len(df_data.columns)} columnas")
+        
+        # Detectar columnas faltantes por contenido
+        def detect_by_content(col_type, sample_size=20):
+            """Detecta columna por tipo de contenido"""
+            if col_type in cols and cols[col_type] is not None:
+                return cols[col_type]
+            
+            best_idx = None
+            best_score = 0
+            
+            for idx in range(min(len(df_data.columns), 30)):  # Buscar en primeras 30 columnas
+                if idx in cols.values():
+                    continue
+                
+                series = df_data.iloc[:sample_size, idx].dropna()
+                if len(series) == 0:
+                    continue
+                
+                score = 0
+                if col_type == "fecha":
+                    # Buscar patrones de fecha
+                    date_count = sum(1 for v in series if re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', str(v)))
+                    score = date_count / len(series) if len(series) > 0 else 0
+                elif col_type == "cliente":
+                    # Buscar texto (no numérico, longitud > 3)
+                    text_count = sum(1 for v in series if isinstance(v, str) and len(str(v).strip()) > 3 and not re.match(r'^[\d\s\.,B/]+$', str(v)))
+                    score = text_count / len(series) if len(series) > 0 else 0
+                elif col_type == "total":
+                    # Buscar números/montos
+                    num_count = sum(1 for v in series if re.search(r'[\d\.,B/]', str(v)) and (isinstance(v, (int, float)) or re.search(r'\d+\.?\d*', str(v))))
+                    score = num_count / len(series) if len(series) > 0 else 0
+                elif col_type == "celular":
+                    # Buscar números de teléfono
+                    phone_count = sum(1 for v in series if re.search(r'\d{7,10}', str(v)))
+                    score = phone_count / len(series) if len(series) > 0 else 0
+                
+                if score > best_score and score > 0.5:  # Al menos 50% de coincidencia
+                    best_score = score
+                    best_idx = idx
+            
+            if best_idx is not None:
+                print(f"   ✅ Columna '{col_type}' detectada por contenido en índice {best_idx} (confianza: {best_score:.1%})")
+                return best_idx
+            return None
+        
+        # Detectar columnas faltantes
+        for key in ["fecha", "cliente", "total", "celular", "referencia", "estado"]:
+            if key not in cols or cols[key] is None:
+                detected = detect_by_content(key)
+                if detected is not None:
+                    cols[key] = detected
+                else:
+                    # Valores por defecto más conservadores
+                    default_cols = {"fecha": 0, "referencia": 1, "cliente": 2, "celular": 3, "estado": 4, "total": 5}
+                    if key in default_cols:
+                        # Solo usar default si la columna existe
+                        if default_cols[key] < len(df_data.columns):
+                            cols[key] = default_cols[key]
+                            print(f"⚠️ Columna '{key}' no detectada, usando columna {default_cols[key]} por defecto")
+                        else:
+                            raise ValueError(f"❌ No se pudo detectar columna '{key}' y el valor por defecto está fuera de rango")
+        
+        print(f"📊 Columnas finales detectadas: {cols}")
+        
         # Validar que las columnas existen
-        max_col = max(cols.values())
+        max_col = max([c for c in cols.values() if c is not None])
         if max_col >= len(df_data.columns):
             raise ValueError(f"❌ Columna {max_col} fuera de rango. El archivo tiene {len(df_data.columns)} columnas")
         
         df_yappy = pd.DataFrame({
-            "fecha": df_data.iloc[:, cols["fecha"]] if cols["fecha"] < len(df_data.columns) else None,
-            "referencia": df_data.iloc[:, cols["referencia"]] if cols["referencia"] < len(df_data.columns) else None,
-            "cliente": df_data.iloc[:, cols["cliente"]] if cols["cliente"] < len(df_data.columns) else None,
-            "celular": df_data.iloc[:, cols["celular"]] if cols["celular"] < len(df_data.columns) else None,
-            "estado": df_data.iloc[:, cols["estado"]] if cols["estado"] < len(df_data.columns) else None,
-            "total": df_data.iloc[:, cols["total"]] if cols["total"] < len(df_data.columns) else None,
+            "fecha": df_data.iloc[:, cols["fecha"]] if cols["fecha"] is not None and cols["fecha"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
+            "referencia": df_data.iloc[:, cols["referencia"]] if cols["referencia"] is not None and cols["referencia"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
+            "cliente": df_data.iloc[:, cols["cliente"]] if cols["cliente"] is not None and cols["cliente"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
+            "celular": df_data.iloc[:, cols["celular"]] if cols["celular"] is not None and cols["celular"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
+            "estado": df_data.iloc[:, cols["estado"]] if cols["estado"] is not None and cols["estado"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
+            "total": df_data.iloc[:, cols["total"]] if cols["total"] is not None and cols["total"] < len(df_data.columns) else pd.Series([None] * len(df_data)),
         })
         
         print(f"📊 Datos leídos: {len(df_yappy)} filas")
-        print(f"   Primeras 3 filas de muestra:")
-        for i in range(min(3, len(df_yappy))):
+        print(f"   Primeras 5 filas de muestra (valores crudos):")
+        for i in range(min(5, len(df_yappy))):
             print(f"   Fila {i+1}: fecha={df_yappy.iloc[i]['fecha']}, cliente={df_yappy.iloc[i]['cliente']}, total={df_yappy.iloc[i]['total']}")
+        
+        # Validar que cliente no sea numérico (si es así, probablemente está leyendo la columna incorrecta)
+        if len(df_yappy) > 0:
+            cliente_sample = df_yappy["cliente"].dropna().head(10)
+            numeric_count = sum(1 for v in cliente_sample if isinstance(v, (int, float)) or (isinstance(v, str) and re.match(r'^[\d\s\.,B/]+$', str(v))))
+            if numeric_count > len(cliente_sample) * 0.7:  # Más del 70% son numéricos
+                print(f"⚠️ ADVERTENCIA: La columna 'cliente' parece contener valores numéricos. Revisando detección...")
+                # Intentar encontrar una columna con texto
+                for idx in range(len(df_data.columns)):
+                    if idx in cols.values():
+                        continue
+                    series = df_data.iloc[:10, idx].dropna()
+                    text_count = sum(1 for v in series if isinstance(v, str) and len(str(v).strip()) > 3 and not re.match(r'^[\d\s\.,B/]+$', str(v)))
+                    if text_count > len(series) * 0.5:
+                        print(f"   ✅ Encontrada mejor columna para 'cliente' en índice {idx}")
+                        cols["cliente"] = idx
+                        df_yappy["cliente"] = df_data.iloc[:, idx]
+                        break
 
     def clean_fecha(v):
         if pd.isna(v): return None
@@ -638,7 +718,29 @@ def parse_yappy_blackdog(df_raw: pd.DataFrame, fecha_cierre_str: str = None):
             match = re.search(r'[-+]?\d*\.?\d+', s)
             return float(match.group(0)) if match else 0.0
 
+    # Validar que total no sea texto antes de limpiar
+    print(f"📊 Validando columna 'total' antes de limpiar...")
+    total_sample = df_yappy["total"].dropna().head(10)
+    print(f"   Muestra de 'total' (primeras 10): {total_sample.tolist()}")
+    
+    # Si total parece ser texto (nombres), buscar la columna correcta
+    text_in_total = sum(1 for v in total_sample if isinstance(v, str) and len(str(v).strip()) > 5 and not re.search(r'[\d\.,B/]', str(v)))
+    if text_in_total > len(total_sample) * 0.5:
+        print(f"⚠️ ADVERTENCIA: La columna 'total' parece contener texto. Buscando columna correcta...")
+        # Buscar columna con montos
+        for idx in range(len(df_data.columns)):
+            if idx == cols.get("cliente") or idx == cols.get("fecha"):
+                continue
+            series = df_data.iloc[:10, idx].dropna()
+            num_count = sum(1 for v in series if isinstance(v, (int, float)) or (isinstance(v, str) and re.search(r'[\d\.,B/]', str(v))))
+            if num_count > len(series) * 0.7:
+                print(f"   ✅ Encontrada mejor columna para 'total' en índice {idx}")
+                cols["total"] = idx
+                df_yappy["total"] = df_data.iloc[:, idx]
+                break
+
     df_yappy["total"] = df_yappy["total"].apply(clean_monto)
+    print(f"📊 Después de limpiar 'total', muestra: {df_yappy['total'].head(5).tolist()}")
     
     # Filtrar filas válidas: debe tener fecha Y (total > 0 O cliente válido)
     # Esto permite capturar transacciones aunque el monto esté en otra columna

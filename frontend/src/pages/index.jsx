@@ -271,12 +271,17 @@ export default function Home() {
       const json = await res.json();
       console.log("📦 Respuesta Banco del backend:", json);
       
-      if (json.error) {
-        throw new Error(json.error);
+      if (json.error || !json.success) {
+        throw new Error(json.error || json.message || json.errors?.[0] || "Error al procesar archivo bancario");
       }
       
-      setDataBanco(json);
-      notify.success(`${json.total_registros || 0} movimientos bancarios cargados`);
+      // La respuesta ahora viene en formato {success, data, ...}
+      if (json.success && json.data) {
+        setDataBanco(json);
+        notify.success(`${json.data.total_registros || 0} movimientos bancarios cargados`);
+      } else {
+        throw new Error(json.message || "Error al procesar archivo bancario");
+      }
     } catch (err) {
       const errorMsg = err.message || "Error desconocido al procesar el archivo bancario";
       notify.error(`Error procesando archivo Banco: ${errorMsg}`);
@@ -522,8 +527,8 @@ export default function Home() {
       )}
 
       {/* Movimientos Bancarios */}
-      {dataBanco && dataBanco.ok && (
-        <BancoPreview data={dataBanco} />
+      {dataBanco && dataBanco.success && dataBanco.data && (
+        <BancoPreview data={dataBanco.data} />
       )}
       </div>
     </div>
