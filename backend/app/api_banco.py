@@ -9,13 +9,20 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from app.utils.file_reader import read_file, detect_file_type
-from app.utils.validators import clean_amount, clean_date, validate_dataframe, normalize_text
+from app.utils.validators import clean_amount, clean_date, validate_dataframe, normalize_text, normalize_amount, normalize_date
 from app.utils.column_detector import ColumnDetector, normalize_column_name, fuzzy_match_score
 from app.utils.response_formatter import success_response, error_response, create_response
 from app.utils.logger import app_logger, log_with_context
+from app.utils.parser_types import (
+    RowState, ConfidenceLevel, FieldEvidence, ParserDecisionReport
+)
+from app.utils.idempotency import IdempotencyService
 import logging
 
 router = APIRouter()
+
+# Services
+idempotency_service = IdempotencyService()
 
 # --- Funciones auxiliares ---
 
@@ -229,6 +236,21 @@ async def banco_preview(
             raise HTTPException(status_code=400, detail="Archivo vacío o no recibido.")
 
         filename = file.filename or "archivo.xlsx"
+        
+        # 🔒 IDEMPOTENCY CHECK: Verificar si este archivo ya fue procesado
+        upload_id, file_hash, existing_record = idempotency_service.get_or_create_upload(content, filename)
+        if existing_record:
+            app_logger.info(f"Archivo duplicado detectado: {file_hash[:16]}...", extra={"request_id": request_id})
+            return success_response(
+                data={
+                    **existing_record.result_summary,
+                    "duplicate": True,
+                    "original_upload_id": existing_record.upload_id
+                },
+                message="Archivo ya procesado previamente (resultado cacheado)",
+                request_id=request_id,
+                start_time=start_time
+            )
         
         # 🔥 DETECTAR HEADER AUTOMÁTICAMENTE
         # Siempre usar la primera hoja (índice 0 o nombre "Sheet1")
@@ -650,22 +672,65 @@ async def banco_preview(
             except Exception as e:
                 print(f"⚠️ Error generando información de diagnóstico: {e}")
 
-        return success_response(
-            data={
-                "preview": preview,
-                "total_registros": len(preview),
-                "filtros": {
-                    "fecha": fecha_cierre,
-                    "sucursal": sucursal_cierre
-                },
-                "detection_confidence": round(avg_confidence, 1),
-                "detected_columns": detected_columns_info,
-                "validation_results": {
-                    "overall_valid": validation.get("overall_valid", True),
-                    "warnings": validation.get("warnings", [])
-                },
-                "diagnostic": diagnostic_info if diagnostic_info else None
+        # 🔍 Generate FieldEvidence for audit trail
+        field_evidence = detector.get_field_evidence()
+        confidence_level = detector.get_confidence_level()
+        
+        # Build ParserDecisionReport
+        rows_by_state = {
+            RowState.RAW_VALID: len([r for r in preview if r.get("monto") and r.get("fecha") and r.get("descripcion")]),
+            RowState.RAW_PARTIAL: len([r for r in preview if not (r.get("monto") and r.get("fecha") and r.get("descripcion"))]),
+        }
+        
+        decision_report = ParserDecisionReport(
+            upload_id=upload_id,
+            file_hash=file_hash,
+            sheet="Sheet1",
+            header_row=header_row,
+            field_evidence=field_evidence,
+            confidence_level=confidence_level,
+            rows_by_state=rows_by_state,
+            profile_matched=None,  # TODO: Add profile matching
+            warnings=validation.get("warnings", [])
+        )
+        
+        # Prepare response data
+        response_data = {
+            "upload_id": upload_id,
+            "preview": preview,
+            "total_registros": len(preview),
+            "filtros": {
+                "fecha": fecha_cierre,
+                "sucursal": sucursal_cierre
             },
+            "decision_report": decision_report.to_dict(),
+            "detection_confidence": round(avg_confidence, 1),
+            "confidence_level": confidence_level.value,
+            "detected_columns": detected_columns_info,
+            "validation_results": {
+                "overall_valid": validation.get("overall_valid", True),
+                "warnings": validation.get("warnings", [])
+            },
+            "can_auto_conciliate": confidence_level == ConfidenceLevel.HIGH,
+            "requires_review": confidence_level == ConfidenceLevel.MEDIUM,
+            "diagnostic": diagnostic_info if diagnostic_info else None
+        }
+        
+        # 🔒 Register upload for idempotency (without sensitive data)
+        idempotency_service.register_upload(
+            upload_id=upload_id,
+            file_hash=file_hash,
+            filename=filename,
+            result_summary={
+                "total_registros": len(preview),
+                "confidence_level": confidence_level.value,
+                "detection_confidence": round(avg_confidence, 1),
+                "rows_by_state": {k.value: v for k, v in rows_by_state.items()}
+            }
+        )
+
+        return success_response(
+            data=response_data,
             message=f"Archivo procesado: {len(preview)} registros coinciden" if len(preview) > 0 else "No se encontraron registros que coincidan con los filtros aplicados",
             warnings=validation.get("warnings", []),
             request_id=request_id,

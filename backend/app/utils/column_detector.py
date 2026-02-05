@@ -12,6 +12,9 @@ from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 from difflib import SequenceMatcher
 
+# Import parser types for FieldEvidence
+from app.utils.parser_types import FieldEvidence, ConfidenceLevel
+
 
 def normalize_column_name(name: str) -> str:
     """
@@ -387,6 +390,79 @@ class ColumnDetector:
         
         self.detection_results = results
         return results
+    
+    def get_field_evidence(self) -> Dict[str, FieldEvidence]:
+        """
+        Genera evidencia auditable para cada campo detectado.
+        Debe llamarse después de detect_all().
+        
+        Returns:
+            Dict[str, FieldEvidence] con evidencia por campo
+        """
+        if not self.detection_results:
+            return {}
+        
+        evidence = {}
+        for field_type, detection in self.detection_results.items():
+            if detection["column_index"] is None:
+                continue
+            
+            scores = detection["scores"]
+            
+            # Determinar método principal usado
+            if scores["name"] >= scores["content"] and scores["name"] >= scores["position"]:
+                method = "NAME"
+                evidence_detail = f"keyword match: '{detection['column_name']}'"
+            elif scores["content"] >= scores["name"] and scores["content"] >= scores["position"]:
+                method = "CONTENT"
+                if field_type == "fecha":
+                    evidence_detail = "date pattern detected"
+                elif field_type == "monto":
+                    evidence_detail = "numeric/currency values detected"
+                else:
+                    evidence_detail = "text pattern detected"
+            else:
+                method = "POSITIONAL"
+                evidence_detail = f"column position: {detection['column_index']}"
+            
+            evidence[field_type] = FieldEvidence(
+                column=str(detection["column_name"]),
+                confidence=detection["confidence"],
+                method=method,
+                evidence=evidence_detail
+            )
+        
+        return evidence
+    
+    def get_confidence_level(self) -> ConfidenceLevel:
+        """
+        Determina el nivel de confianza global basado en todas las detecciones.
+        
+        Returns:
+            ConfidenceLevel (HIGH, MEDIUM, LOW)
+        """
+        if not self.detection_results:
+            return ConfidenceLevel.LOW
+        
+        # Calcular promedio de confianza de campos detectados
+        confidences = []
+        for detection in self.detection_results.values():
+            if detection["column_index"] is not None:
+                confidences.append(detection["confidence"])
+        
+        if not confidences:
+            return ConfidenceLevel.LOW
+        
+        avg_confidence = sum(confidences) / len(confidences)
+        min_confidence = min(confidences)
+        
+        # El nivel se determina por el mínimo (el eslabón más débil)
+        if min_confidence >= 70:
+            return ConfidenceLevel.HIGH
+        elif min_confidence >= 40:
+            return ConfidenceLevel.MEDIUM
+        else:
+            return ConfidenceLevel.LOW
     
     def validate_detection(self, min_confidence: float = 70.0, min_valid_rows_ratio: float = 0.5) -> Dict[str, Any]:
         """

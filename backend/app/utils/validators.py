@@ -4,8 +4,170 @@ Funciones de validación y limpieza de datos.
 import pandas as pd
 import numpy as np
 import re
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal, InvalidOperation
 from typing import Optional, Union, Tuple
+
+
+# =============================================================================
+# FINANCIAL-GRADE NORMALIZERS
+# =============================================================================
+
+def normalize_amount(value: Union[str, int, float, None]) -> Optional[Decimal]:
+    """
+    Normaliza un monto a Decimal para operaciones financieras precisas.
+    
+    Formatos soportados:
+    - $1,234.56 → 1234.56
+    - 1.234,56 (formato europeo) → 1234.56
+    - (1,234.56) (negativo) → -1234.56
+    - B/. 1,234.56 → 1234.56
+    - -1234.56 → -1234.56
+    
+    Returns:
+        Decimal or None if invalid
+    """
+    if value is None or pd.isna(value):
+        return None
+    
+    if isinstance(value, Decimal):
+        return value
+    
+    if isinstance(value, (int, float)):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return Decimal(str(round(value, 2)))
+    
+    s = str(value).strip()
+    if not s or s.lower() in ['nan', 'none', 'null', '']:
+        return None
+    
+    # Detect negative from parentheses: (1,234.56) -> negative
+    is_negative = s.startswith('(') and s.endswith(')')
+    if is_negative:
+        s = s[1:-1]
+    
+    # Remove currency symbols
+    s = re.sub(r'[Bb]/\.?\s*', '', s)  # B/. or B/
+    s = re.sub(r'[$€£]', '', s)
+    s = s.strip()
+    
+    # Detect format: European (1.234,56) vs US (1,234.56)
+    # European: last separator is comma, thousands are dots
+    # US: last separator is dot, thousands are commas
+    
+    comma_pos = s.rfind(',')
+    dot_pos = s.rfind('.')
+    
+    if comma_pos > dot_pos and comma_pos > 0:
+        # European format: 1.234,56
+        s = s.replace('.', '')  # Remove thousand separators
+        s = s.replace(',', '.')  # Convert decimal separator
+    else:
+        # US format: 1,234.56
+        s = s.replace(',', '')  # Remove thousand separators
+    
+    # Handle negative sign
+    if '-' in s:
+        is_negative = True
+        s = s.replace('-', '')
+    
+    try:
+        result = Decimal(s)
+        if is_negative:
+            result = -result
+        return result.quantize(Decimal('0.01'))
+    except InvalidOperation:
+        # Try regex extraction as last resort
+        match = re.search(r'[\d.]+', s)
+        if match:
+            try:
+                result = Decimal(match.group(0))
+                if is_negative:
+                    result = -result
+                return result.quantize(Decimal('0.01'))
+            except InvalidOperation:
+                return None
+        return None
+
+
+def normalize_date(value: Union[str, int, float, datetime, date, pd.Timestamp, None]) -> Optional[date]:
+    """
+    Normaliza una fecha a objeto date de Python.
+    
+    Formatos soportados:
+    - dd/mm/yyyy, mm/dd/yyyy, yyyy-mm-dd
+    - Excel serial date (número como 45678)
+    - Timestamp de pandas
+    - datetime de Python
+    
+    Returns:
+        date object or None if invalid
+    """
+    if value is None or pd.isna(value):
+        return None
+    
+    # Already a date
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    
+    # datetime or Timestamp → extract date
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.date() if hasattr(value, 'date') else value
+    
+    # Excel serial date (number between ~30000 and ~60000 for years 1980-2060)
+    if isinstance(value, (int, float)):
+        if 30000 <= value <= 60000:
+            try:
+                # Excel's epoch is 1899-12-30 (with a bug for 1900 leap year)
+                excel_epoch = datetime(1899, 12, 30)
+                delta = pd.Timedelta(days=int(value))
+                return (excel_epoch + delta).date()
+            except:
+                pass
+        return None
+    
+    # String parsing
+    s = str(value).strip()
+    if not s or s.lower() in ['nan', 'none', 'null', '']:
+        return None
+    
+    # Remove weekday prefix (lun, mar, mié, etc.)
+    s = re.sub(r'^(lun|mar|mi[eé]|jue|vie|s[aá]b|dom)\.?\s+', '', s, flags=re.IGNORECASE).strip()
+    
+    # Try common formats
+    formats = [
+        ('%d/%m/%Y', True),   # DD/MM/YYYY (dayfirst)
+        ('%Y-%m-%d', False),  # YYYY-MM-DD (ISO)
+        ('%d-%m-%Y', True),   # DD-MM-YYYY
+        ('%m/%d/%Y', False),  # MM/DD/YYYY (US)
+        ('%d.%m.%Y', True),   # DD.MM.YYYY (European)
+    ]
+    
+    for fmt, is_dayfirst in formats:
+        try:
+            dt = datetime.strptime(s, fmt)
+            # Validate year is reasonable
+            if 1990 <= dt.year <= 2100:
+                return dt.date()
+        except ValueError:
+            continue
+    
+    # Fallback: pandas with dayfirst=True (Panama uses DD/MM/YYYY)
+    try:
+        dt = pd.to_datetime(s, dayfirst=True)
+        if 1990 <= dt.year <= 2100:
+            return dt.date()
+    except:
+        pass
+    
+    return None
+
+
+# =============================================================================
+# LEGACY FUNCTIONS (keeping for backwards compatibility)
+# =============================================================================
+
 
 
 def clean_amount(value: Union[str, int, float, None]) -> Optional[float]:
@@ -281,10 +443,15 @@ from app.utils.column_detector import (
 
 # Re-exportar para uso directo desde validators
 __all__ = [
+    # Financial-grade normalizers
+    'normalize_amount',
+    'normalize_date',
+    # Legacy cleaners
     'clean_amount',
     'clean_date',
     'validate_dataframe',
     'normalize_text',
+    # Column detection utilities
     'is_likely_date_column',
     'is_likely_amount_column',
     'is_likely_text_column',
